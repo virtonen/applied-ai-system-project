@@ -2,18 +2,7 @@
 
 ## Project Summary
 
-In this project you will build and explain a small music recommender system.
 
-Your goal is to:
-
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-Replace this paragraph with your own summary of what your version does.
-
----
 
 ## How The System Works
 
@@ -231,36 +220,52 @@ Worked example: a user wants `pop / happy`, energy 0.8, valence 0.8, acousticnes
 
 ## Getting Started
 
+Run every command below from the project root (the folder that contains `app.py`).
+
 ### Setup
 
-1. Create a virtual environment (optional but recommended):
+1. Create and activate a virtual environment:
 
    ```bash
-   python -m venv .venv
+   python3 -m venv .venv
    source .venv/bin/activate      # Mac or Linux
    .venv\Scripts\activate         # Windows
+   ```
 
-2. Install dependencies
+2. Install the dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Launch the web app (Streamlit UI)
 
 ```bash
-pip install -r requirements.txt
+python -m streamlit run app.py
 ```
 
-3. Run the app:
+Streamlit prints a local address, usually <http://localhost:8501>, and opens it in your browser. Pick your taste in the sidebar and the top songs update with the reasons for each score. Press `Ctrl+C` in the terminal to stop it.
+
+If the port is busy, choose another one: `python -m streamlit run app.py --server.port 8502`.
+
+**Search box.** Type a request such as `cozy rainy study` in the sidebar. The words are matched against each song's title, artist, genre, mood, tags and a few vibe words ("calm", "acoustic", "energetic"). Only matching songs are ranked with your sliders, and the reasons start with "search match: ...". If too few words match (at least two are needed for a multi-word request), the app says "Nothing fits" and shows no songs. The code is `src/retrieval.py`, ported from the DocuBot project (tokenizer, stopwords, stemming, inverted index and refusal guardrail). This is keyword retrieval, not a language model.
+
+### Run in the terminal
 
 ```bash
-python -m src.main
+python -m src.main                  # default view, all demo profiles
+python -m src.main --table          # table with reasons
+python -m src.main --mode mood-first --diverse
+python -m src.main --compare        # top 3 of every scoring mode
 ```
 
 ### Running Tests
 
-Run the starter tests with:
-
 ```bash
-pytest
+python -m pytest
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+Use `python -m pytest`, not bare `pytest`, so Python can find the `src` folder. The tests cover the scoring, the scoring modes, the diversity penalty, the table output and the Streamlit app.
 
 ---
 

@@ -9,7 +9,7 @@ def run_app(**widgets):
     """Start the app, set widgets by key (selectbox/slider/radio/checkbox), and run it."""
     at = AppTest.from_file(APP, default_timeout=30).run()
     for key, value in widgets.items():
-        for kind in (at.selectbox, at.slider, at.select_slider, at.radio, at.checkbox, at.multiselect):
+        for kind in (at.text_input, at.selectbox, at.slider, at.select_slider, at.radio, at.checkbox, at.multiselect):
             try:
                 kind(key=key).set_value(value)
                 break
@@ -86,3 +86,27 @@ def test_every_mode_and_diversity_setting_renders_without_errors():
             at = run_app(**POP, mode=mode, diverse=diverse)
             assert not at.exception, (mode, diverse)
             assert len(at.dataframe[0].value) == 5
+
+
+def test_search_box_limits_results_to_matching_songs():
+    at = run_app(**LOFI, search="cozy rainy study")
+    assert not at.exception
+    assert songs(at) == ["Library Rain", "Midnight Coding"]
+    assert "search match: cozy, rainy, study" in page_text(at)
+    assert len(at.warning) == 0
+
+
+def test_nonsense_search_says_nothing_fits_and_shows_no_table():
+    at = run_app(**LOFI, search="xylophone zebra")
+    assert not at.exception
+    assert len(at.warning) == 1
+    assert "Nothing fits" in at.warning[0].value
+    assert len(at.dataframe) == 0
+
+
+def test_clearing_the_search_brings_the_full_catalog_back():
+    at = run_app(**LOFI, search="xylophone zebra")
+    at.text_input(key="search").set_value("")
+    at.run()
+    assert len(at.dataframe[0].value) == 5
+    assert len(at.warning) == 0

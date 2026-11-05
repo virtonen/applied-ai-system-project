@@ -4,7 +4,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from src.recommender import DEFAULT_MODE, SCORING_MODES, load_songs, recommend_songs
+from src.recommender import DEFAULT_MODE, SCORING_MODES, load_songs
+from src.retrieval import SongIndex, search_and_rank
 
 DATA_PATH = Path(__file__).parent / "data" / "songs.csv"
 WEAK_MATCH_SCORE = 0.6  # below this, the best result is called a weak match
@@ -15,8 +16,19 @@ def get_songs():
     return load_songs(str(DATA_PATH))
 
 
+@st.cache_resource
+def get_index():
+    return SongIndex(get_songs())
+
+
 def build_prefs(songs):
-    """Draw the sidebar and return (preferences dict, mode, diverse, k)."""
+    """Draw the sidebar and return (search text, preferences dict, mode, diverse, k)."""
+    st.sidebar.header("Search")
+    query = st.sidebar.text_input(
+        "Describe what you want (optional)", key="search",
+        placeholder="e.g. cozy rainy study", help="Only songs that match these words are ranked.",
+    )
+
     st.sidebar.header("Your taste")
     genres = sorted({s["genre"] for s in songs})
     moods = sorted({s["mood"] for s in songs})
@@ -47,7 +59,7 @@ def build_prefs(songs):
     mode = st.sidebar.radio("Scoring mode", list(SCORING_MODES), index=list(SCORING_MODES).index(DEFAULT_MODE), key="mode")
     diverse = st.sidebar.checkbox("Mix up artists and genres (diversity penalty)", key="diverse")
     k = st.sidebar.slider("How many songs", 3, 10, 5, key="k")
-    return prefs, mode, diverse, k
+    return query, prefs, mode, diverse, k
 
 
 def main():
@@ -56,8 +68,15 @@ def main():
     st.caption("A small content-based music recommender. Every score comes with its reasons.")
 
     songs = get_songs()
-    prefs, mode, diverse, k = build_prefs(songs)
-    results = recommend_songs(prefs, songs, k=k, mode=mode, diverse=diverse)
+    query, prefs, mode, diverse, k = build_prefs(songs)
+    results = search_and_rank(get_index(), query, prefs, k=k, mode=mode, diverse=diverse)
+
+    if not results:
+        st.warning(
+            f"Nothing fits: no songs match \"{query}\". "
+            "Try different or fewer words, or clear the search box."
+        )
+        return
 
     if results[0][1] < WEAK_MATCH_SCORE:
         st.warning(
@@ -65,7 +84,8 @@ def main():
             "These songs are the closest the catalog has, not a good fit."
         )
 
-    st.subheader(f"Top {len(results)} songs ({mode}{', mixed up' if diverse else ''})")
+    heading = f"Top {len(results)} songs ({mode}{', mixed up' if diverse else ''})"
+    st.subheader(heading + (f" for \"{query}\"" if query.strip() else ""))
     st.dataframe(
         [
             {

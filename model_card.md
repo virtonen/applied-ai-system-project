@@ -11,8 +11,7 @@ It finds songs that match your vibe.
 ## 2. Intended Use  
 
 **Goal.** The model suggests songs from a small catalog. It gives the top five songs for one listener. Each song comes with reasons.  
-
-**Who it is for.** It is a classroom project. It is for learning how recommenders work. It is not for real users.  
+ 
 
 **What it assumes about the listener.**  
 
