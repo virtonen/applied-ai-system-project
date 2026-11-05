@@ -72,7 +72,6 @@ def test_weak_match_shows_a_warning():
 
 
 def test_advanced_preferences_appear_in_the_reasons():
-    at = run_app(**LOFI, use_popularity=True, use_decade=True, use_instrumentalness=True, avoid_explicit=True)
     at = run_app(**LOFI, use_popularity=True, use_decade=True, use_instrumentalness=True, avoid_explicit=True,
                  mood_tags=["study", "cozy"])
     text = page_text(at)

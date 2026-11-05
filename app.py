@@ -79,7 +79,7 @@ def main():
             for rank, (song, score, _) in enumerate(results, start=1)
         ],
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Why these songs?")
