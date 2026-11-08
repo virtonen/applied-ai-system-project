@@ -2,6 +2,8 @@ import csv
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 
+from src.guardrails import DataError, check_columns, parse_song_row
+
 # Scoring modes (a simple Strategy pattern). Each mode is a table of weights, and one
 # shared scorer reads the table it is given. To add a mode, add one entry here.
 # A feature only counts when the user sets its preference, and the final score is
@@ -82,22 +84,29 @@ class Recommender:
 
 def load_songs(csv_path: str) -> List[Dict]:
     """
-    Loads songs from a CSV file.
+    Loads songs from a CSV file and checks every row.
+    Raises DataError with a clear message if the file is missing, empty or malformed.
     Required by src/main.py
     """
-    int_fields = ("id", "popularity", "release_decade")
-    float_fields = ("energy", "valence", "acousticness", "tempo_bpm", "danceability", "instrumentalness")
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            check_columns(reader.fieldnames)
+            songs: List[Dict] = []
+            seen_ids = set()
+            for row in reader:
+                song = parse_song_row(row, reader.line_num)
+                if song["id"] in seen_ids:
+                    raise DataError(f"Line {reader.line_num}: duplicate id {song['id']}.")
+                seen_ids.add(song["id"])
+                songs.append(song)
+    except FileNotFoundError:
+        raise DataError(f"Song file not found: {csv_path}") from None
+    except (OSError, UnicodeDecodeError, csv.Error) as error:
+        raise DataError(f"Could not read the song file {csv_path}: {error}") from None
 
-    songs: List[Dict] = []
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            for name in int_fields:
-                row[name] = int(row[name])
-            for name in float_fields:
-                row[name] = float(row[name])
-            row["explicit"] = bool(int(row["explicit"]))
-            row["mood_tags"] = row["mood_tags"].split("|")
-            songs.append(row)
+    if not songs:
+        raise DataError("The song file has a header but no songs.")
     return songs
 
 def score_song(user_prefs: Dict, song: Dict, mode: str = DEFAULT_MODE) -> Tuple[float, List[str]]:

@@ -1,0 +1,48 @@
+%% VibeMatch system architecture (current: logging, guardrails, confidence).
+%% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
+flowchart TD
+    USER(["User<br/>typed request + sliders"])
+    HUMAN(["Human check<br/>reads the table, reasons,<br/>confidence and the log"])
+
+    subgraph APP["Streamlit UI (app.py)"]
+        UI["Sidebar inputs<br/>results table + reasons<br/>confidence badge / warnings"]
+    end
+
+    subgraph DATA["Data"]
+        CSV[("data/songs.csv")]
+        LOAD["load_songs<br/>CSV guardrails:<br/>missing file, empty file,<br/>missing column, bad value,<br/>duplicate id"]
+    end
+
+    subgraph PIPE["Search pipeline (src/pipeline.py)"]
+        GUARD["Input guardrails<br/>validate query, prefs, k, mode"]
+        RETR["Retriever (src/retrieval.py)<br/>tokenize, stem, inverted index<br/>guardrail: at least 2 words must match"]
+        SCORE["Scorer (src/recommender.py)<br/>score_song + scoring mode<br/>+ optional diversity penalty"]
+        CONF["Confidence (src/confidence.py)<br/>strength, separation, coverage<br/>High / Medium / Low"]
+    end
+
+    LOG[("logs/recommender.log<br/>one JSON line per search")]
+    TESTS{{"pytest: 126 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+
+    CSV --> LOAD
+    LOAD -->|"songs"| RETR
+    LOAD -->|"DataError"| UI
+
+    USER --> UI
+    UI -->|"query + prefs"| GUARD
+    GUARD -->|"invalid input: message"| UI
+    GUARD --> RETR
+    RETR -->|"no match: Nothing fits"| UI
+    RETR -->|"candidate songs"| SCORE
+    SCORE -->|"ranked songs + reasons"| CONF
+    CONF -->|"results + confidence"| UI
+    UI --> HUMAN
+
+    GUARD -.->|"log status"| LOG
+    RETR -.->|"log matched words"| LOG
+    CONF -.->|"log result count, confidence"| LOG
+    LOAD -.->|"log load errors"| LOG
+    LOG -.-> HUMAN
+
+    TESTS -.->|"checks"| LOAD
+    TESTS -.->|"checks"| PIPE
+    TESTS -.->|"checks"| UI

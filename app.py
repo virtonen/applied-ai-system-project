@@ -1,24 +1,29 @@
 """Streamlit UI for the Music Recommender. Run with: python -m streamlit run app.py"""
 
+import logging
+import os
 from pathlib import Path
 
 import streamlit as st
 
+from src.guardrails import DataError
+from src.logging_utils import log_event
+from src.pipeline import search
 from src.recommender import DEFAULT_MODE, SCORING_MODES, load_songs
-from src.retrieval import SongIndex, search_and_rank
+from src.retrieval import SongIndex
 
-DATA_PATH = Path(__file__).parent / "data" / "songs.csv"
-WEAK_MATCH_SCORE = 0.6  # below this, the best result is called a weak match
+# The song file can be changed with the VIBEMATCH_DATA environment variable
+DATA_PATH = os.environ.get("VIBEMATCH_DATA") or str(Path(__file__).parent / "data" / "songs.csv")
 
 
 @st.cache_data
-def get_songs():
-    return load_songs(str(DATA_PATH))
+def get_songs(path):
+    return load_songs(path)
 
 
 @st.cache_resource
-def get_index():
-    return SongIndex(get_songs())
+def get_index(path):
+    return SongIndex(get_songs(path))
 
 
 def build_prefs(songs):
@@ -65,48 +70,63 @@ def build_prefs(songs):
 def main():
     st.set_page_config(page_title="VibeMatch", page_icon="🎧", layout="wide")
     st.title("🎧 VibeMatch")
-    st.caption("A small content-based music recommender. Every score comes with its reasons.")
+    st.caption("A small content-based music recommender. Every score comes with its reasons and a confidence level.")
 
-    songs = get_songs()
-    query, prefs, mode, diverse, k = build_prefs(songs)
-    results = search_and_rank(get_index(), query, prefs, k=k, mode=mode, diverse=diverse)
-
-    if not results:
-        st.warning(
-            f"Nothing fits: no songs match \"{query}\". "
-            "Try different or fewer words, or clear the search box."
-        )
+    try:
+        songs = get_songs(DATA_PATH)
+    except DataError as error:
+        log_event("load_songs", level=logging.ERROR, path=DATA_PATH, error=str(error))
+        st.error(f"The song list could not be loaded. {error}")
         return
 
-    if results[0][1] < WEAK_MATCH_SCORE:
+    query, prefs, mode, diverse, k = build_prefs(songs)
+    outcome = search(get_index(DATA_PATH), query, prefs, k=k, mode=mode, diverse=diverse)
+
+    if outcome.status == "invalid_input":
+        st.error(f"Please check your input. {outcome.message}")
+        return
+    if outcome.status == "error":
+        st.error(outcome.message)
+        return
+    if outcome.status == "nothing_fits":
+        st.warning(f"{outcome.message} Try different or fewer words, or clear the search box.")
+        return
+
+    top = outcome.top_confidence
+    if top.label == "Low":
         st.warning(
-            f"No strong match: the best score is only {results[0][1]:.2f}. "
+            f"Low confidence ({top.value:.2f}): the best score is only {outcome.results[0].score:.2f}. "
             "These songs are the closest the catalog has, not a good fit."
         )
+    else:
+        st.caption(f"Overall confidence: {top.label} ({top.value:.2f})")
 
-    heading = f"Top {len(results)} songs ({mode}{', mixed up' if diverse else ''})"
-    st.subheader(heading + (f" for \"{query}\"" if query.strip() else ""))
+    heading = f"Top {len(outcome.results)} songs ({mode}{', mixed up' if diverse else ''})"
+    st.subheader(heading + (f' for "{outcome.query}"' if outcome.query else ""))
     st.dataframe(
         [
             {
                 "#": rank,
-                "Song": song["title"],
-                "Artist": song["artist"],
-                "Genre": song["genre"],
-                "Mood": song["mood"],
-                "Score": round(score, 2),
+                "Song": r.song["title"],
+                "Artist": r.song["artist"],
+                "Genre": r.song["genre"],
+                "Mood": r.song["mood"],
+                "Score": round(r.score, 2),
+                "Confidence": f"{r.confidence.label} ({r.confidence.value:.2f})",
             }
-            for rank, (song, score, _) in enumerate(results, start=1)
+            for rank, r in enumerate(outcome.results, start=1)
         ],
         hide_index=True,
         width="stretch",
     )
 
     st.subheader("Why these songs?")
-    for rank, (song, score, explanation) in enumerate(results, start=1):
-        with st.expander(f"#{rank}  {song['title']} by {song['artist']}  (score {score:.2f})", expanded=rank == 1):
-            for reason in explanation.split("; "):
+    for rank, r in enumerate(outcome.results, start=1):
+        title = f"#{rank}  {r.song['title']} by {r.song['artist']}  (score {r.score:.2f}, {r.confidence.label} confidence)"
+        with st.expander(title, expanded=rank == 1):
+            for reason in r.explanation.split("; "):
                 st.write(f"- {reason}")
+            st.write(f"- confidence {r.confidence.value:.2f}: {r.confidence.breakdown()}")
 
 
 main()

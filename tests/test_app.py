@@ -64,11 +64,11 @@ def test_diversity_checkbox_adds_penalty_reasons():
     assert "diversity penalty" in page_text(run_app(**LOFI, diverse=True))
 
 
-def test_weak_match_shows_a_warning():
+def test_low_confidence_shows_a_warning():
     at = run_app(**EXTREME)
     assert not at.exception
     assert len(at.warning) == 1
-    assert "No strong match" in at.warning[0].value
+    assert "Low confidence" in at.warning[0].value
 
 
 def test_advanced_preferences_appear_in_the_reasons():
@@ -110,3 +110,47 @@ def test_clearing_the_search_brings_the_full_catalog_back():
     at.run()
     assert len(at.dataframe[0].value) == 5
     assert len(at.warning) == 0
+
+
+def test_confidence_is_shown_in_the_table_and_the_reasons():
+    at = run_app(**LOFI)
+    assert list(at.dataframe[0].value["Confidence"])[0].startswith("High (")
+    assert any("Overall confidence: High" in c.value for c in at.caption)
+    assert "strength" in page_text(at) and "separation" in page_text(at)
+
+
+def test_confidence_shows_coverage_for_a_search():
+    assert "coverage 0.67" in page_text(run_app(**LOFI, search="cozy rainy study"))
+
+
+def _run_with_data_file(monkeypatch, path):
+    monkeypatch.setenv("VIBEMATCH_DATA", str(path))
+    return AppTest.from_file(APP, default_timeout=30).run()
+
+
+def test_a_missing_song_file_shows_an_error_not_a_crash(monkeypatch, tmp_path):
+    at = _run_with_data_file(monkeypatch, tmp_path / "nope.csv")
+    assert not at.exception
+    assert len(at.error) == 1 and "not found" in at.error[0].value
+    assert len(at.dataframe) == 0
+
+
+def test_an_empty_song_file_shows_an_error_not_a_crash(monkeypatch, tmp_path):
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    at = _run_with_data_file(monkeypatch, empty)
+    assert not at.exception and "empty" in at.error[0].value
+
+
+def test_a_song_file_with_a_missing_column_names_the_column(monkeypatch, tmp_path):
+    broken = tmp_path / "broken.csv"
+    broken.write_text("id,title\n1,Only Two Columns\n")
+    at = _run_with_data_file(monkeypatch, broken)
+    assert not at.exception and "missing required column" in at.error[0].value and "energy" in at.error[0].value
+
+
+def test_load_failures_are_logged(monkeypatch, tmp_path, log_to_a_temporary_file):
+    _run_with_data_file(monkeypatch, tmp_path / "nope.csv")
+    import json
+    entries = [json.loads(line) for line in log_to_a_temporary_file.read_text().splitlines()]
+    assert entries[-1]["event"] == "load_songs" and "not found" in entries[-1]["error"]
