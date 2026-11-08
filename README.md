@@ -16,7 +16,7 @@ The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermai
 4. **Scorer** ([src/recommender.py](src/recommender.py)) ranks the candidates with the chosen mode and an optional diversity penalty.
 5. **Confidence** ([src/confidence.py](src/confidence.py)) rates each result.
 6. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
-7. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 126 automated tests check each stage.
+7. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 149 automated tests check each stage.
 
 ## Setup
 
@@ -103,7 +103,7 @@ The app still shows the closest songs, but with a "Low confidence" warning that 
 
 ## Testing summary
 
-All **126 tests pass** (`python -m pytest`).
+All **149 tests pass** (`python -m pytest`).
 
 | File | Tests | Covers |
 |---|---|---|
@@ -112,6 +112,7 @@ All **126 tests pass** (`python -m pytest`).
 | `test_confidence.py` | 11 | bounds, monotonic behavior, exact values, labels, calibration on the demo profiles |
 | `test_retrieval.py` | 22 | stemming, stopwords, expected hits per query, the guardrail on nonsense |
 | `test_app.py` | 17 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
+| `test_evaluate.py` | 23 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
 | `test_scoring_modes.py`, `test_diversity.py`, `test_table.py`, `test_recommender.py` | 27 | scoring modes, diversity penalty, table output, starter tests |
 
 Confidence on the 10 demo profiles (no typed request):
@@ -122,6 +123,38 @@ Confidence on the 10 demo profiles (no typed request):
 | Conflicting: Sad but Energetic | 0.71 | Medium |
 | Unknown Genre and Mood | 0.72 | Medium |
 | Extreme Targets | 0.52 | Low |
+
+### Evaluation harness
+
+`python -m src.evaluate` runs 19 predefined cases (listener profiles, scoring modes, the diversity penalty, typed requests and guardrails) through the real search pipeline. It checks each against what it should return (top song, exact list, songs included or excluded, confidence label, status), prints pass/fail with confidence, writes [reports/evaluation.md](reports/evaluation.md), and exits with code 1 if any case fails. `python -m src.evaluate --readme` refreshes the table below.
+
+<!-- EVAL:START -->
+| ID | What it checks | Expected | Result | Top song | Confidence |
+|---|---|---|---|---|---|
+| P1 | High-Energy Pop: the pop/happy song wins | top = Sunrise City; includes Gym Hero, Rooftop Lights; confidence High | PASS | Sunrise City | High (0.96) |
+| P2 | Chill Lofi: both lofi/chill songs lead | includes Library Rain, Midnight Coding; confidence High | PASS | Library Rain | High (0.85) |
+| P3 | Deep Intense Rock: the one rock song wins | top = Storm Runner; confidence High | PASS | Storm Runner | High (0.99) |
+| P4 | Nostalgic Throwback uses decade, popularity and tags | top = Dust Road Home; confidence High | PASS | Dust Road Home | High (0.99) |
+| P5 | Sad but Energetic: a compromise, so only Medium confidence | top = Adagio for Rain; confidence Medium | PASS | Adagio for Rain | Medium (0.74) |
+| P6 | Extreme Targets: a poor fit must be flagged Low | top = Birchwood Lullaby; confidence Low | PASS | Birchwood Lullaby | Low (0.50) |
+| P7 | Clean Workout: the explicit song stays out of the top 3 | top = Storm Runner; excludes Iron Requiem | PASS | Storm Runner | High (0.84) |
+| M1 | Mood-first ranks a happy song above the intense Gym Hero | Rooftop Lights above Gym Hero | PASS | Sunrise City | High (0.97) |
+| M2 | Genre-first puts the only metal song first for the metal fan | top = Iron Requiem | PASS | Iron Requiem | Medium (0.68) |
+| D1 | Diversity penalty: one song per artist for Chill Lofi | max 1 per artist | PASS | Library Rain | High (0.95) |
+| S1 | 'cozy rainy study' finds exactly the two songs with those tags | exactly Library Rain, Midnight Coding; confidence High | PASS | Library Rain | High (0.88) |
+| S2 | A one-word request is enough: 'jazz' | exactly Coffee Shop Stories | PASS | Coffee Shop Stories | High (0.82) |
+| S3 | Vibe words from numbers: 'workout powerful' | exactly Gym Hero | PASS | Gym Hero | High (0.89) |
+| S4 | 'calm acoustic' returns a full list that includes Library Rain | includes Library Rain | PASS | Library Rain | High (0.97) |
+| G1 | Nonsense words: nothing fits | nothing_fits | PASS | - | - |
+| G2 | One real word and one unknown word: refused | nothing_fits | PASS | - | - |
+| G3 | Only filler words: nothing fits | nothing_fits | PASS | - | - |
+| G4 | Out-of-range energy is rejected with a reason | invalid_input; message has ''energy' must be between 0 and 1' | PASS | - | - |
+| G5 | A 500-character request is rejected | invalid_input; message has 'too long' | PASS | - | - |
+
+19 of 19 cases passed (100%). Average top-result confidence 0.86 across 14 cases that returned songs (High 11, Medium 2, Low 1).
+<!-- EVAL:END -->
+
+The expected results were written from behavior I had already inspected, so this harness guards against regressions and checks the guardrails. It is not an independent measure of recommendation quality.
 
 What worked: breaking the code on purpose made tests fail (weakening the confidence weights failed 7 tests, and removing the CSV range check failed 1). What I learned: my first confidence formula looked fine until I ran it on the adversarial profiles.
 

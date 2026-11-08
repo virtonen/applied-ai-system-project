@@ -1,4 +1,4 @@
-%% VibeMatch system architecture (current: logging, guardrails, confidence).
+%% VibeMatch system architecture (current: logging, guardrails, confidence, evaluation harness).
 %% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
 flowchart TD
     USER(["User<br/>typed request + sliders"])
@@ -21,7 +21,10 @@ flowchart TD
     end
 
     LOG[("logs/recommender.log<br/>one JSON line per search")]
-    TESTS{{"pytest: 126 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+    TESTS{{"pytest: 149 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+
+    EVAL["Evaluation harness (src/evaluate.py)<br/>19 predefined cases with expected songs<br/>pass/fail + average confidence"]
+    REPORT[("reports/evaluation.md<br/>table copied into the README")]
 
     CSV --> LOAD
     LOAD -->|"songs"| RETR
@@ -46,3 +49,7 @@ flowchart TD
     TESTS -.->|"checks"| LOAD
     TESTS -.->|"checks"| PIPE
     TESTS -.->|"checks"| UI
+
+    EVAL -->|"runs the same search()"| PIPE
+    EVAL -->|"writes"| REPORT
+    REPORT -.-> HUMAN
