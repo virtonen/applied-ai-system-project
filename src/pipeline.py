@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from src.confidence import Confidence, confidence
+from src.explain import Why, template_why
 from src.guardrails import InputError, validate_k, validate_prefs, validate_query
 from src.logging_utils import log_event
 from src.recommender import DEFAULT_MODE, SCORING_MODES, recommend_songs
@@ -27,6 +28,7 @@ class Ranked:
     explanation: str
     confidence: Confidence
     matched_words: List[str] = field(default_factory=list)
+    why: Optional[Why] = None  # a grounded explanation built from the retrieved song facts
 
 
 @dataclass
@@ -83,7 +85,9 @@ def search(
             next_score = ranked[position + 1][1] if position + 1 < len(ranked) else None
             if matched:
                 explanation = f"search match: {', '.join(matched)}; {explanation}"
-            outcome.results.append(Ranked(song, score, explanation, confidence(score, next_score, coverage), matched))
+            outcome.results.append(
+                Ranked(song, score, explanation, confidence(score, next_score, coverage), matched, template_why(song, matched))
+            )
         outcome.status = "ok"
         return outcome
 

@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 
 from src.main import ADVANCED_PROFILES, ADVERSARIAL_PROFILES, STANDARD_PROFILES
 from src.logging_utils import configure_logging
+from src.explain import validate_explanation
 from src.pipeline import SearchOutcome, search
 from src.recommender import load_songs
 from src.report import format_table
@@ -42,7 +43,7 @@ class Case:
     expect keys (all optional): status (default "ok"), message (text the message contains),
     top (title ranked first), exact (full ordered list of titles), includes, excludes (lists of
     titles), before ((a, b): a ranks above b), count, confidence (label of the top result),
-    max_per_artist.
+    max_per_artist, grounded (True: every result's explanation uses only that song's facts and the request).
     """
 
     id: str
@@ -58,7 +59,7 @@ class Case:
 CASES: List[Case] = [
     # Listener profiles, no typed request
     Case("P1", "High-Energy Pop: the pop/happy song wins", PROFILES["High-Energy Pop"],
-         expect=dict(top="Sunrise City", includes=["Gym Hero", "Rooftop Lights"], confidence="High")),
+         expect=dict(top="Sunrise City", includes=["Gym Hero", "Rooftop Lights"], confidence="High", grounded=True)),
     Case("P2", "Chill Lofi: both lofi/chill songs lead", PROFILES["Chill Lofi"],
          expect=dict(includes=["Library Rain", "Midnight Coding"], confidence="High")),
     Case("P3", "Deep Intense Rock: the one rock song wins", PROFILES["Deep Intense Rock"],
@@ -80,13 +81,13 @@ CASES: List[Case] = [
          expect=dict(max_per_artist=1, count=5)),
     # Typed requests (retrieval and its guardrail)
     Case("S1", "'cozy rainy study' finds exactly the two songs with those tags", PROFILES["Chill Lofi"], query="cozy rainy study",
-         expect=dict(exact=["Library Rain", "Midnight Coding"], confidence="High")),
+         expect=dict(exact=["Library Rain", "Midnight Coding"], confidence="High", grounded=True)),
     Case("S2", "A one-word request is enough: 'jazz'", PROFILES["Chill Lofi"], query="jazz",
          expect=dict(exact=["Coffee Shop Stories"])),
     Case("S3", "Vibe words from numbers: 'workout powerful'", PROFILES["High-Energy Pop"], query="workout powerful",
          expect=dict(exact=["Gym Hero"])),
     Case("S4", "'calm acoustic' returns a full list that includes Library Rain", PROFILES["Chill Lofi"], query="calm acoustic",
-         expect=dict(includes=["Library Rain"], count=5)),
+         expect=dict(includes=["Library Rain"], count=5, grounded=True)),
     # Guardrails
     Case("G1", "Nonsense words: nothing fits", PROFILES["Chill Lofi"], query="xylophone zebra",
          expect=dict(status="nothing_fits", count=0)),
@@ -142,6 +143,11 @@ def check(outcome: SearchOutcome, expect: Dict) -> List[str]:
         top = outcome.top_confidence
         if top is None or top.label != expect["confidence"]:
             problems.append(f"confidence was {top.label if top else 'none'}, expected {expect['confidence']}")
+    if expect.get("grounded"):
+        for r in outcome.results:
+            ok, reason = validate_explanation(r.why.text, r.song, outcome.query)
+            if not ok:
+                problems.append(f"explanation for {r.song['title']} is not grounded: {reason}")
     if "max_per_artist" in expect:
         artists = [r.song["artist"] for r in outcome.results]
         worst = max((artists.count(a) for a in artists), default=0)
@@ -180,6 +186,8 @@ def describe(expect: Dict) -> str:
         parts.append(f"max {expect['max_per_artist']} per artist")
     if "confidence" in expect:
         parts.append(f"confidence {expect['confidence']}")
+    if expect.get("grounded"):
+        parts.append("grounded explanations")
     if "message" in expect:
         parts.append(f"message has '{expect['message']}'")
     return "; ".join(parts)

@@ -154,3 +154,66 @@ def test_load_failures_are_logged(monkeypatch, tmp_path, log_to_a_temporary_file
     import json
     entries = [json.loads(line) for line in log_to_a_temporary_file.read_text().splitlines()]
     assert entries[-1]["event"] == "load_songs" and "not found" in entries[-1]["error"]
+
+
+# ----- the grounded "why" -----
+
+class _FakeGemini:
+    """A stand-in model: line 1 is a safe sentence, line 2 invents facts, the rest are missing."""
+
+    calls = 0
+
+    def generate(self, prompt, max_tokens=300):
+        type(self).calls += 1
+        return "1: It is a good song.\n2: It is a jazz song from 1995."
+
+
+def _captions(at):
+    return [c.value for c in at.caption]
+
+
+def test_without_an_api_key_the_option_is_disabled_and_the_why_comes_from_the_facts():
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert at.checkbox(key="use_llm").disabled
+    assert any("No GEMINI_API_KEY" in c for c in _captions(at))
+    assert any("Built from the song facts." in c for c in _captions(at))
+
+
+def test_the_template_why_is_shown_for_each_result():
+    at = run_app(**LOFI, search="cozy rainy study")
+    written = [m.value for m in at.markdown]
+    assert any("It matches your request (cozy, rainy, study)" in w for w in written)
+
+
+def test_with_a_key_the_option_is_off_by_default_so_no_call_is_made(monkeypatch):
+    _FakeGemini.calls = 0
+    monkeypatch.setattr("src.llm_client.make_client", lambda: _FakeGemini())
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert not at.checkbox(key="use_llm").disabled and not at.checkbox(key="use_llm").value
+    assert _FakeGemini.calls == 0
+
+
+def test_ai_sentences_are_used_when_valid_and_replaced_when_they_invent_facts(monkeypatch):
+    _FakeGemini.calls = 0
+    monkeypatch.setattr("src.llm_client.make_client", lambda: _FakeGemini())
+    at = run_app(**LOFI, use_llm=True)
+    assert not at.exception and _FakeGemini.calls == 1  # one call for all five results
+    written = [m.value for m in at.markdown]
+    assert "It is a good song." in written
+    assert not any("1995" in w for w in written)  # the invented sentence never reaches the page
+    captions = _captions(at)
+    assert any("Written by Gemini and checked" in c for c in captions)
+    assert any("Gemini's wording was not used" in c and "1995" in c for c in captions)
+
+
+def test_a_failing_model_does_not_break_the_page(monkeypatch):
+    from src.llm_client import LLMError
+
+    class Broken:
+        def generate(self, prompt, max_tokens=300):
+            raise LLMError("Gemini returned HTTP 429")
+
+    monkeypatch.setattr("src.llm_client.make_client", lambda: Broken())
+    at = run_app(**LOFI, use_llm=True)
+    assert not at.exception and len(at.dataframe[0].value) == 5
+    assert any("HTTP 429" in c for c in _captions(at))

@@ -154,3 +154,13 @@ def test_a_bad_data_file_stops_the_harness_with_a_clear_error(tmp_path):
 
     with pytest.raises(DataError, match="not found"):
         main(["--data", str(tmp_path / "nope.csv"), "--out", str(tmp_path / "r.md")])
+
+
+def test_the_grounded_check_catches_an_explanation_with_invented_facts(index):
+    from src.explain import Why
+
+    outcome = search(index, "", evaluate.PROFILES["Chill Lofi"], k=3)
+    assert check(outcome, dict(grounded=True)) == []
+    outcome.results[0].why = Why("It is a jazz song from 1995.", "ai")
+    problems = check(outcome, dict(grounded=True))
+    assert len(problems) == 1 and "not grounded" in problems[0] and "1995" in problems[0]

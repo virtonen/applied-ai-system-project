@@ -1,4 +1,4 @@
-%% VibeMatch system architecture (current: logging, guardrails, confidence, evaluation harness).
+%% VibeMatch system architecture (current: logging, guardrails, confidence, grounded RAG explanations, evaluation harness).
 %% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
 flowchart TD
     USER(["User<br/>typed request + sliders"])
@@ -20,8 +20,15 @@ flowchart TD
         CONF["Confidence (src/confidence.py)<br/>strength, separation, coverage<br/>High / Medium / Low"]
     end
 
+    subgraph RAG["Grounded explanation (src/explain.py)"]
+        FACTS["Retrieved song facts<br/>description + plain-word numbers<br/>+ matched request words"]
+        TEMPLATE["Fact-based template sentence<br/>(always available)"]
+        GEMINI["Gemini (optional, one call per search)<br/>src/llm_client.py"]
+        VALID{"Validator<br/>every word must come from<br/>the facts or the request"}
+    end
+
     LOG[("logs/recommender.log<br/>one JSON line per search")]
-    TESTS{{"pytest: 149 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+    TESTS{{"pytest: 186 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
 
     EVAL["Evaluation harness (src/evaluate.py)<br/>19 predefined cases with expected songs<br/>pass/fail + average confidence"]
     REPORT[("reports/evaluation.md<br/>table copied into the README")]
@@ -53,3 +60,12 @@ flowchart TD
     EVAL -->|"runs the same search()"| PIPE
     EVAL -->|"writes"| REPORT
     REPORT -.-> HUMAN
+
+    CONF -->|"ranked songs"| FACTS
+    FACTS --> TEMPLATE
+    FACTS -->|"prompt: use only these facts"| GEMINI
+    GEMINI -->|"sentence"| VALID
+    VALID -->|"accepted: AI sentence"| UI
+    VALID -->|"rejected or call failed:<br/>use template, log reason"| TEMPLATE
+    TEMPLATE --> UI
+    VALID -.->|"log rejections"| LOG

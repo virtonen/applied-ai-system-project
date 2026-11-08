@@ -6,6 +6,8 @@ from pathlib import Path
 
 import streamlit as st
 
+from src import llm_client
+from src.explain import explain_with_ai
 from src.guardrails import DataError
 from src.logging_utils import log_event
 from src.pipeline import search
@@ -27,12 +29,21 @@ def get_index(path):
 
 
 def build_prefs(songs):
-    """Draw the sidebar and return (search text, preferences dict, mode, diverse, k)."""
+    """Draw the sidebar and return (search text, preferences dict, mode, diverse, k, use_ai)."""
     st.sidebar.header("Search")
     query = st.sidebar.text_input(
         "Describe what you want (optional)", key="search",
         placeholder="e.g. cozy rainy study", help="Only songs that match these words are ranked.",
     )
+
+    client = llm_client.make_client()
+    use_ai = st.sidebar.checkbox(
+        "Write the 'why' with Gemini", key="use_llm", disabled=client is None,
+        help="One API call per search. Every sentence is checked against the song facts, "
+             "and anything that mentions something else is replaced by a fact-based sentence.",
+    )
+    if client is None:
+        st.sidebar.caption("No GEMINI_API_KEY found, so the 'why' is built directly from the song facts.")
 
     st.sidebar.header("Your taste")
     genres = sorted({s["genre"] for s in songs})
@@ -64,7 +75,7 @@ def build_prefs(songs):
     mode = st.sidebar.radio("Scoring mode", list(SCORING_MODES), index=list(SCORING_MODES).index(DEFAULT_MODE), key="mode")
     diverse = st.sidebar.checkbox("Mix up artists and genres (diversity penalty)", key="diverse")
     k = st.sidebar.slider("How many songs", 3, 10, 5, key="k")
-    return query, prefs, mode, diverse, k
+    return query, prefs, mode, diverse, k, (client if use_ai else None)
 
 
 def main():
@@ -79,7 +90,7 @@ def main():
         st.error(f"The song list could not be loaded. {error}")
         return
 
-    query, prefs, mode, diverse, k = build_prefs(songs)
+    query, prefs, mode, diverse, k, ai_client = build_prefs(songs)
     outcome = search(get_index(DATA_PATH), query, prefs, k=k, mode=mode, diverse=diverse)
 
     if outcome.status == "invalid_input":
@@ -120,10 +131,22 @@ def main():
         width="stretch",
     )
 
+    whys = [r.why for r in outcome.results]
+    if ai_client is not None:
+        with st.spinner("Asking Gemini, then checking its answer against the song facts..."):
+            whys = explain_with_ai(outcome.results, outcome.query, ai_client)
+
     st.subheader("Why these songs?")
-    for rank, r in enumerate(outcome.results, start=1):
+    for rank, (r, why) in enumerate(zip(outcome.results, whys), start=1):
         title = f"#{rank}  {r.song['title']} by {r.song['artist']}  (score {r.score:.2f}, {r.confidence.label} confidence)"
         with st.expander(title, expanded=rank == 1):
+            st.write(why.text)
+            st.caption(
+                "Written by Gemini and checked against the song facts." if why.source == "ai"
+                else "Built from the song facts."
+                + (f" Gemini's wording was not used: {why.note}." if why.note else "")
+            )
+            st.markdown("**How it was scored**")
             for reason in r.explanation.split("; "):
                 st.write(f"- {reason}")
             st.write(f"- confidence {r.confidence.value:.2f}: {r.confidence.breakdown()}")

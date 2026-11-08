@@ -15,8 +15,9 @@ The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermai
 3. **Retriever** ([src/retrieval.py](src/retrieval.py)) finds songs whose text matches the request. If too few words match, it returns nothing and the UI says "Nothing fits".
 4. **Scorer** ([src/recommender.py](src/recommender.py)) ranks the candidates with the chosen mode and an optional diversity penalty.
 5. **Confidence** ([src/confidence.py](src/confidence.py)) rates each result.
-6. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
-7. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 149 automated tests check each stage.
+6. **Explainer** ([src/explain.py](src/explain.py)) writes a "why this song" sentence from the retrieved song facts. With Gemini switched on, the model writes it and a **validator** rejects any sentence that mentions something not in those facts (see below).
+7. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
+8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 186 automated tests check each stage.
 
 ## Setup
 
@@ -38,6 +39,8 @@ python -m pytest                        # all tests (use python -m, not bare pyt
 ```
 
 Optional environment variables: `VIBEMATCH_DATA` (path to another song CSV) and `VIBEMATCH_LOG_FILE` (path for the log).
+
+**Optional: Gemini explanations.** Put `GEMINI_API_KEY=your-key` in a `.env` file in the project root (it is gitignored) and tick "Write the 'why' with Gemini" in the sidebar. Without a key everything works; the "why" is built straight from the song facts.
 
 ## What's new in this step: logging, guardrails and confidence
 
@@ -65,6 +68,25 @@ Optional environment variables: `VIBEMATCH_DATA` (path to another song CSV) and 
 - **separation:** how far it leads the next song (a lead of 0.10 or more counts as full).
 - **coverage:** the share of typed-request words the song matched. With no request this part is left out and the other two are scaled up.
 - **Labels:** High at 0.80 or more, Medium at 0.55 or more, otherwise Low. A Low top result shows a warning. This replaced my earlier fixed "score below 0.6" check.
+
+## Grounded explanations (RAG with validation)
+
+Retrieval first narrows the songs. Then the retrieved text decides what the answer is allowed to say:
+
+1. **Retrieve.** The facts for each song are its searchable description (title, artist, genre, mood, tags, vibe words), plain words for its numbers ("low-energy", "acoustic") and the request words it matched.
+2. **Generate.** By default a fact-based template writes the sentence. With Gemini switched on, one API call writes one sentence per result from those facts only. The prompt forbids anything not in the facts.
+3. **Validate.** Every word of every sentence must come from that song's facts, the user's own request, or a short list of plain connecting words ("is", "because", "with"). Anything else (an invented genre, year, artist, instrument or number) rejects that sentence, and the fact-based sentence is shown instead, with the reason. A failed or blocked API call falls back the same way.
+4. **Keep costs low.** One call per search covers all results, nothing is sent unless the checkbox is ticked, repeated searches are cached, and every call and rejection is logged (the key never is).
+
+Real example, profile Chill Lofi with the request `cozy rainy study` (Library Rain):
+
+| Source | Sentence | Validator |
+|---|---|---|
+| Fact-based template | It matches your request (cozy, rainy, study) because those words are in its description. It is a lofi song with a chill mood and a low-energy acoustic sound. Its tags are rainy, cozy, study. | accepted |
+| Gemini (live call) | Library Rain fits your cozy rainy study request because it has rainy, cozy, and study tags. | accepted |
+| Invented text (from a test) | Library Rain is a jazz classic from 1995. | rejected: mentions words not in the song facts: 1995, classic, jazz |
+
+Trade-off: the validator is strict. A harmless synonym ("relaxing" for "chill") is rejected too, which is why the template is always there as a safe fallback. The validator checks words, not meaning, so it cannot catch a sentence that uses allowed words to say something false.
 
 ## Sample interactions
 
@@ -103,7 +125,7 @@ The app still shows the closest songs, but with a "Low confidence" warning that 
 
 ## Testing summary
 
-All **149 tests pass** (`python -m pytest`).
+All **186 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
 
 | File | Tests | Covers |
 |---|---|---|
@@ -111,8 +133,9 @@ All **149 tests pass** (`python -m pytest`).
 | `test_pipeline.py` | 18 | statuses, matched words, contained failures, and the content of each log line |
 | `test_confidence.py` | 11 | bounds, monotonic behavior, exact values, labels, calibration on the demo profiles |
 | `test_retrieval.py` | 22 | stemming, stopwords, expected hits per query, the guardrail on nonsense |
-| `test_app.py` | 17 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
-| `test_evaluate.py` | 23 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
+| `test_app.py` | 22 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
+| `test_explain.py` | 32 | the template, the validator (accepts facts, rejects invented genre, year, artist, instrument, number), the AI step with a fake model (valid, invalid, missing, failing, cached), the client and key loading, and the skipped live test |
+| `test_evaluate.py` | 24 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
 | `test_scoring_modes.py`, `test_diversity.py`, `test_table.py`, `test_recommender.py` | 27 | scoring modes, diversity penalty, table output, starter tests |
 
 Confidence on the 10 demo profiles (no typed request):
@@ -131,7 +154,7 @@ Confidence on the 10 demo profiles (no typed request):
 <!-- EVAL:START -->
 | ID | What it checks | Expected | Result | Top song | Confidence |
 |---|---|---|---|---|---|
-| P1 | High-Energy Pop: the pop/happy song wins | top = Sunrise City; includes Gym Hero, Rooftop Lights; confidence High | PASS | Sunrise City | High (0.96) |
+| P1 | High-Energy Pop: the pop/happy song wins | top = Sunrise City; includes Gym Hero, Rooftop Lights; confidence High; grounded explanations | PASS | Sunrise City | High (0.96) |
 | P2 | Chill Lofi: both lofi/chill songs lead | includes Library Rain, Midnight Coding; confidence High | PASS | Library Rain | High (0.85) |
 | P3 | Deep Intense Rock: the one rock song wins | top = Storm Runner; confidence High | PASS | Storm Runner | High (0.99) |
 | P4 | Nostalgic Throwback uses decade, popularity and tags | top = Dust Road Home; confidence High | PASS | Dust Road Home | High (0.99) |
@@ -141,10 +164,10 @@ Confidence on the 10 demo profiles (no typed request):
 | M1 | Mood-first ranks a happy song above the intense Gym Hero | Rooftop Lights above Gym Hero | PASS | Sunrise City | High (0.97) |
 | M2 | Genre-first puts the only metal song first for the metal fan | top = Iron Requiem | PASS | Iron Requiem | Medium (0.68) |
 | D1 | Diversity penalty: one song per artist for Chill Lofi | max 1 per artist | PASS | Library Rain | High (0.95) |
-| S1 | 'cozy rainy study' finds exactly the two songs with those tags | exactly Library Rain, Midnight Coding; confidence High | PASS | Library Rain | High (0.88) |
+| S1 | 'cozy rainy study' finds exactly the two songs with those tags | exactly Library Rain, Midnight Coding; confidence High; grounded explanations | PASS | Library Rain | High (0.88) |
 | S2 | A one-word request is enough: 'jazz' | exactly Coffee Shop Stories | PASS | Coffee Shop Stories | High (0.82) |
 | S3 | Vibe words from numbers: 'workout powerful' | exactly Gym Hero | PASS | Gym Hero | High (0.89) |
-| S4 | 'calm acoustic' returns a full list that includes Library Rain | includes Library Rain | PASS | Library Rain | High (0.97) |
+| S4 | 'calm acoustic' returns a full list that includes Library Rain | includes Library Rain; grounded explanations | PASS | Library Rain | High (0.97) |
 | G1 | Nonsense words: nothing fits | nothing_fits | PASS | - | - |
 | G2 | One real word and one unknown word: refused | nothing_fits | PASS | - | - |
 | G3 | Only filler words: nothing fits | nothing_fits | PASS | - | - |
