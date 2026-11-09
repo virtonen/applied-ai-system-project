@@ -1,12 +1,10 @@
 """
-Command line runner for the Music Recommender Simulation.
+Terminal runner for the demo listener profiles.
 
-This file helps you quickly run and test your recommender.
+It also holds the profiles that the tests and the evaluation harness (src/evaluate.py) reuse.
 
-You will implement the functions in recommender.py:
-- load_songs
-- score_song
-- recommend_songs
+    python -m src.main --table       # table with reasons
+    python -m src.main --compare     # top 3 of every scoring mode
 """
 
 import argparse

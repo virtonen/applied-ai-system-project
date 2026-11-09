@@ -1,10 +1,10 @@
-# 🎧 VibeMatch: a music recommender with search, guardrails and confidence
+# 🎧 VibeMatch: a music recommender with retrieval, grounded explanations and confidence
 
-VibeMatch recommends songs from a small catalog. You describe your taste with sliders and an optional typed request ("cozy rainy study"). It returns ranked songs, the reasons behind each score, and a **confidence level** that says how far to trust the result. If nothing fits, it says so instead of guessing.
+VibeMatch recommends songs from a small catalog. You describe your taste with sliders and an optional typed request ("cozy rainy study"). It returns ranked songs, the reasons behind each score, and a **confidence level** that says how far to trust the result. A "why this song" sentence is built from the retrieved song facts, and if an AI model writes it, every word is checked against those facts. If nothing fits, the app says so instead of guessing.
 
 ## Original project
 
-This extends my **Module 3 project, the Music Recommender Simulation**. That project loaded 18 songs from a CSV, scored every song against a listener profile (energy, valence and acousticness closeness, plus mood and genre matches), and printed the top results with a plain-English reason for each score. It also gained scoring modes (genre-first, mood-first, energy-focused), a diversity penalty and five extra song features. This project turns it into a small applied AI system: a web UI, keyword retrieval ported from my DocuBot project, and (this step) logging, guardrails and confidence scoring.
+This extends my **Module 3 project, the Music Recommender Simulation**. That project loaded 18 songs from a CSV, scored every song against a listener profile (energy, valence and acousticness closeness, plus mood and genre matches), and printed the top results with a plain-English reason for each score. It also gained scoring modes (genre-first, mood-first, energy-focused), a diversity penalty and five extra song features. This project turns it into a small applied AI system: a web UI, keyword retrieval ported from my DocuBot project (the RAG feature), grounded explanations with a validator, confidence scoring, logging and guardrails, and an evaluation harness.
 
 ## Architecture overview
 
@@ -36,13 +36,14 @@ pip install -r requirements.txt
 python -m streamlit run app.py          # web app, usually http://localhost:8501
 python -m src.main --table              # terminal view of the demo profiles
 python -m pytest                        # all tests (use python -m, not bare pytest)
+python -m src.evaluate                  # evaluation harness: 19 cases, pass/fail table
 ```
 
 Optional environment variables: `VIBEMATCH_DATA` (path to another song CSV) and `VIBEMATCH_LOG_FILE` (path for the log).
 
 **Optional: Gemini explanations.** Put `GEMINI_API_KEY=your-key` in a `.env` file in the project root (it is gitignored) and tick "Write the 'why' with Gemini" in the sidebar. Without a key everything works; the "why" is built straight from the song facts.
 
-## What's new in this step: logging, guardrails and confidence
+## Reliability: logging, guardrails and confidence
 
 **Logging.** Every search writes one JSON line to `logs/recommender.log` (ignored by git): the query, matched words, mode, result count, top song, confidence, time taken and any error. Load failures are logged too. Logging never raises, so a full disk or a bad path cannot break the app.
 
@@ -122,6 +123,8 @@ The app still shows the closest songs, but with a "Low confidence" warning that 
 - **Strength dominates confidence.** My first formula (0.6 / 0.2 / 0.2) rated the poor "Extreme Targets" result Medium and punished two great songs for nearly tying. I changed it to 0.7 / 0.1 / 0.2 and left coverage out when there is no request.
 - **Strict CSV validation that fails fast.** A bad file stops the app with the line number, which is better than quietly ranking bad data.
 - **JSON-lines log.** Easy to read and to parse.
+- **Scoring modes are weight tables.** The modes (balanced, genre-first, mood-first, energy-focused) differ only in weights, so one shared scorer reads a table instead of four copies of the math.
+- **The AI model is optional and untrusted.** The app works without a key. When Gemini is on, its output is validated word by word and replaced by a fact-based sentence if it fails. I used the standard library for the API call to avoid another dependency.
 
 ## Testing summary
 
@@ -186,7 +189,8 @@ What worked: breaking the code on purpose made tests fail (weakening the confide
 - Only 18 songs, and I wrote the mood tags by hand.
 - The confidence weights and thresholds were tuned by looking at the same 10 demo profiles used in the tests, so they are not independently validated. Confidence says how well the catalog fits the request, not whether you will like the song.
 - Retrieval needs exact words (after light stemming).
+- The validator checks words, not meaning, and is strict about synonyms (see the RAG section).
 
-## What's next
+## Reflection
 
-An evaluation script with expected results, grounded explanations built from the retrieved text, a larger dataset, and possibly a self-critique retry loop. The diagram will be updated after each step. My responsible-AI reflection is in [model_card.md](model_card.md).
+Building this taught me that the AI part of a system is the smallest and least trustworthy part, so most of the work is around it: deciding what the model may see, checking what it says, and having a safe answer ready when it fails. Retrieval turned out to be a design problem, not a model problem: what the song text contains decides what can be found. I also learned to test by breaking things on purpose. Several of my first guesses (the confidence formula, the strictness of the validator) only looked right until I ran them on the awkward cases. My responsible-AI reflection (limitations, misuse, and how I worked with AI) is in [model_card.md](model_card.md).
