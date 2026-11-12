@@ -1,6 +1,5 @@
 import csv
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass, field
+from typing import Dict, List, Tuple
 
 from src.guardrails import DataError, check_columns, parse_song_row
 
@@ -33,60 +32,10 @@ ARTIST_PENALTY = 0.15
 GENRE_PENALTY = 0.08
 
 
-@dataclass
-class Song:
-    """
-    Represents a song and its attributes.
-    Required by tests/test_recommender.py
-    """
-    id: int
-    title: str
-    artist: str
-    genre: str
-    mood: str
-    energy: float
-    tempo_bpm: float
-    valence: float
-    danceability: float
-    acousticness: float
-    popularity: int = 50
-    release_decade: int = 2020
-    mood_tags: List[str] = field(default_factory=list)
-    instrumentalness: float = 0.0
-    explicit: bool = False
-
-@dataclass
-class UserProfile:
-    """
-    Represents a user's taste preferences.
-    Required by tests/test_recommender.py
-    """
-    favorite_genre: str
-    favorite_mood: str
-    target_energy: float
-    likes_acoustic: bool
-
-class Recommender:
-    """
-    OOP implementation of the recommendation logic.
-    Required by tests/test_recommender.py
-    """
-    def __init__(self, songs: List[Song]):
-        self.songs = songs
-
-    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
-        # TODO: Implement recommendation logic
-        return self.songs[:k]
-
-    def explain_recommendation(self, user: UserProfile, song: Song) -> str:
-        # TODO: Implement explanation logic
-        return "Explanation placeholder"
-
 def load_songs(csv_path: str) -> List[Dict]:
     """
     Loads songs from a CSV file and checks every row.
     Raises DataError with a clear message if the file is missing, empty or malformed.
-    Required by src/main.py
     """
     try:
         with open(csv_path, newline="", encoding="utf-8") as f:
@@ -112,7 +61,6 @@ def load_songs(csv_path: str) -> List[Dict]:
 def score_song(user_prefs: Dict, song: Dict, mode: str = DEFAULT_MODE) -> Tuple[float, List[str]]:
     """
     Scores a single song against user preferences, using the weights of the chosen mode.
-    Required by recommend_songs() and src/main.py
     """
     if mode not in SCORING_MODES:
         raise ValueError(f"Unknown mode '{mode}'. Choose from: {', '.join(SCORING_MODES)}")
@@ -184,7 +132,6 @@ def recommend_songs(
 ) -> List[Tuple[Dict, float, str]]:
     """
     Functional implementation of the recommendation logic.
-    Required by src/main.py
     """
     # Judge every song with score_song, then rank; sorted() leaves `songs` untouched
     judged = [(song, *score_song(user_prefs, song, mode)) for song in songs]

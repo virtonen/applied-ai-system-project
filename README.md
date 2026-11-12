@@ -8,7 +8,9 @@ This extends my **Module 3 project, the Music Recommender Simulation**. That pro
 
 ## Architecture overview
 
-The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermaid source). Data flows like this:
+The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermaid source; image: [assets/architecture_mmd.png](assets/architecture_mmd.png)). Data flows like this:
+
+![VibeMatch architecture diagram](assets/architecture_mmd.png)
 
 1. **UI** ([app.py](app.py)) collects a typed request and preferences.
 2. **Input guardrails** check them. Bad input gets a clear message, never a crash.
@@ -17,7 +19,7 @@ The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermai
 5. **Confidence** ([src/confidence.py](src/confidence.py)) rates each result.
 6. **Explainer** ([src/explain.py](src/explain.py)) writes a "why this song" sentence from the retrieved song facts. With Gemini switched on, the model writes it and a **validator** rejects any sentence that mentions something not in those facts (see below).
 7. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
-8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 186 automated tests check each stage.
+8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 184 automated tests check each stage.
 
 ## Setup
 
@@ -91,6 +93,10 @@ Trade-off: the validator is strict. A harmless synonym ("relaxing" for "chill") 
 
 ## Sample interactions
 
+The web app with the first interaction below and the Gemini option on. The sentence under the song title was written by Gemini and passed the validator.
+
+![VibeMatch web app showing two results, confidence levels and a Gemini-written explanation](assets/streamlit-app.png)
+
 Profile: **Chill Lofi** (lofi, chill, energy 0.4, valence 0.6, acousticness 0.8).
 
 **1. A typed request**, input `cozy rainy study`:
@@ -128,7 +134,7 @@ The app still shows the closest songs, but with a "Low confidence" warning that 
 
 ## Testing summary
 
-All **186 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
+All **184 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
 
 | File | Tests | Covers |
 |---|---|---|
@@ -139,7 +145,7 @@ All **186 tests pass** (`python -m pytest`), plus 1 live test that is skipped un
 | `test_app.py` | 22 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
 | `test_explain.py` | 32 | the template, the validator (accepts facts, rejects invented genre, year, artist, instrument, number), the AI step with a fake model (valid, invalid, missing, failing, cached), the client and key loading, and the skipped live test |
 | `test_evaluate.py` | 24 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
-| `test_scoring_modes.py`, `test_diversity.py`, `test_table.py`, `test_recommender.py` | 27 | scoring modes, diversity penalty, table output, starter tests |
+| `test_scoring_modes.py`, `test_diversity.py`, `test_table.py` | 25 | scoring modes, diversity penalty, table output |
 
 Confidence on the 10 demo profiles (no typed request):
 
