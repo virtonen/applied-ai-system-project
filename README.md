@@ -12,14 +12,14 @@ The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermai
 
 ![VibeMatch architecture diagram](assets/architecture_mmd.png)
 
-1. **UI** ([app.py](app.py)) collects a typed request and preferences. A command-line version ([src/search.py](src/search.py)) uses the same pipeline.
+1. **UI** ([app.py](app.py)) collects a typed request and preferences. A command-line version ([src/search.py](src/search.py)) uses the same pipeline. Optionally, the **agent** ([src/agent.py](src/agent.py)) runs the searches for it: it plans, searches, checks the result, and if nothing fits or confidence is Low it rewords the request, relaxes optional preferences or tries another scoring mode (at most 3 retries), keeping a trace of every step.
 2. **Input guardrails** check them. Bad input gets a clear message, never a crash.
 3. **Retriever** ([src/retrieval.py](src/retrieval.py)) finds songs whose text matches the request. A second source, the **glossary** ([src/glossary.py](src/glossary.py), documents in [docs/glossary/](docs/glossary/)), lets a request word also match related words: "mellow" matches "chill". If too few of the user's own words match, it returns nothing and the UI says "Nothing fits".
 4. **Scorer** ([src/recommender.py](src/recommender.py)) ranks the candidates with the chosen mode and an optional diversity penalty.
 5. **Confidence** ([src/confidence.py](src/confidence.py)) rates each result.
 6. **Explainer** ([src/explain.py](src/explain.py)) writes a "why this song" sentence from the retrieved song facts and the glossary's description of its genre and mood. With Gemini switched on, the model writes it and a **validator** rejects any sentence that mentions something not in those facts (see below).
 7. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
-8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 231 automated tests check each stage.
+8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 268 automated tests check each stage.
 
 ## Setup
 
@@ -36,10 +36,10 @@ pip install -r requirements.txt
 
 ```bash
 python -m streamlit run app.py          # web app, usually http://localhost:8501
-python -m src.search "cozy rainy study" --profile "Chill Lofi"   # one search in the terminal (add --ai for Gemini, --no-glossary to switch the glossary off)
+python -m src.search "cozy rainy study" --profile "Chill Lofi"   # one search in the terminal (add --ai for Gemini, --no-glossary to switch the glossary off, --agent to let the agent retry)
 python -m src.main --table              # terminal view of the demo profiles
 python -m pytest                        # all tests (use python -m, not bare pytest)
-python -m src.evaluate --brief          # evaluation harness: 23 cases, pass/fail
+python -m src.evaluate --brief          # evaluation harness: 29 cases, pass/fail
 ```
 
 Optional environment variables: `VIBEMATCH_DATA` (path to another song CSV) and `VIBEMATCH_LOG_FILE` (path for the log).
@@ -107,6 +107,28 @@ Relaxed music is gentle and unhurried, for winding down.
 - **Impact (before and after).** In the evaluation harness, "mellow homework" returns nothing without the glossary and three songs with it; "rnb groove" and "catchy upbeat" go from nothing to the r&b song and the two pop songs. Sample runs 3 and 4 show it. Requests that already matched directly are unchanged ("cozy rainy study" returns the same two songs, and a test checks this).
 - **Why self-written.** It keeps the system deterministic and testable, avoids licensing and network dependence, and matches the catalog's own genres and moods. A live API such as MusicBrainz describes artists and releases, not vibe words.
 - **A correction.** The stemmer already treats "relaxing" and "relaxed" as the same word, so the glossary is for words with no shared stem ("mellow", "homework", "sad", "gym").
+
+## Agentic workflow: plan, act, critique, retry
+
+With `--agent` (or the "Let the assistant retry" option in the web app), the search runs inside a small agent loop instead of once. It is deterministic: no language model decides anything, so the same input always gives the same trace.
+
+| Step | What it does |
+|---|---|
+| PLAN | Lists the strategies it may use, in order, and the retry budget (3). |
+| ACT | Runs a search with the normal pipeline (the tool). |
+| CHECK | Judges the result: good, nothing fits, low confidence, or cannot be fixed. It uses the per-word match counts, which include glossary matches. |
+| REVISE | Changes the request using what the check found, then acts again. |
+| DECIDE | Keeps the best result and says what changed. |
+
+Strategies, in order:
+
+| Situation | Strategies |
+|---|---|
+| Nothing fits | drop words that match no song (even through the glossary), keep the single strongest word, rank by the preferences alone |
+| Low confidence | relax the optional preferences, compare the other scoring modes and use the best |
+| Invalid input or an unexpected error | stop at once, because rewording cannot fix it |
+
+Limits by design: it makes at most 3 retries, never repeats a strategy, changes only the request words, the scoring mode and the optional preferences, and cannot bypass input validation, the retrieval guardrail or the explanation validator. Whenever the answer comes from a reformulated request, the output says what changed and quotes the original request, so the user stays in control. Sample runs 5 and 6 show it, and five full traces (including invalid input, which is not retried) are saved in [ai_interactions.md](ai_interactions.md). A test checks that those saved traces match what the agent produces now.
 
 ## Sample runs
 
@@ -271,7 +293,95 @@ Status  : ok, 2 song(s), overall confidence High (0.88)
 [exit code 0]
 ```
 
-### 5. Guardrail: nothing fits
+### 5. Agent: nothing fits, so it rewords and retries
+
+Without the agent, one word that matches no song makes the whole request fail:
+
+```
+$ python -m src.search "jazz zebra" --profile "Chill Lofi" -k 1
+Request : jazz zebra
+Prefs   : genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8
+Mode    : balanced
+Status  : nothing_fits
+Message : Nothing fits: no songs match "jazz zebra".
+[exit code 1]
+```
+
+With `--agent`, the agent plans, searches, checks the result, drops the word that matches nothing, and searches again. It prints its trace, and the output says what it changed and quotes the original request:
+
+```
+$ python -m src.search "jazz zebra" --profile "Chill Lofi" --agent -k 1
+PLAN    search as typed. If nothing fits: drop words that match no song, then keep the strongest
+        word, then rank by the preferences alone. If confidence is Low: relax the optional
+        preferences, then compare the other scoring modes. At most 3 retries.
+ACT 0   search("jazz zebra", mode=balanced) -> nothing_fits
+CHECK   nothing fits. Songs matching each word: jazz 1, zebra 0.
+REVISE  drop "zebra", which matches no song even through the glossary, and keep "jazz".
+ACT 1   search("jazz", mode=balanced) -> ok, 1 song(s), top confidence High (0.82)
+CHECK   good enough: High confidence (0.82).
+DECIDE  recovered after 1 retry by changing: dropped "zebra". Answered "jazz" instead of "jazz
+        zebra".
+
+Request : jazz
+Prefs   : genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8
+Mode    : balanced
+Note    : the agent changed the request (dropped "zebra"). You asked: "jazz zebra"
+Status  : ok, 1 song(s), overall confidence High (0.82)
+
+1. Coffee Shop Stories by Slow Stereo  [jazz / relaxed]
+   score 0.74 | confidence High (0.82): strength 0.74, separation 1.00, coverage 1.00
+   why: It matches your request (jazz) because those words are in its description. It is a jazz song
+        with a relaxed mood and a low-energy acoustic sound. Jazz is improvised, swinging music
+        built on rich chords and usually played by small bands. Its tags are cozy, warm, smooth.
+        (built from the song facts)
+   scored by: search match: jazz; energy close to target: 0.37 vs 0.40 (+0.34); acousticness close
+              to target: 0.89 vs 0.80 (+0.23); valence close to target: 0.71 vs 0.60 (+0.18)
+[exit code 0]
+```
+
+### 6. Agent: low confidence, so it tries another scoring mode
+
+```
+$ python -m src.search --profile "Extreme Targets" --agent -k 2
+PLAN    search as typed. If nothing fits: drop words that match no song, then keep the strongest
+        word, then rank by the preferences alone. If confidence is Low: relax the optional
+        preferences, then compare the other scoring modes. At most 3 retries.
+ACT 0   search("", mode=balanced) -> ok, 2 song(s), top confidence Low (0.50)
+CHECK   low confidence (0.50): the best score is only 0.52, so the catalog does not fit these
+        preferences well.
+REVISE  compare the other scoring modes on the same catalog (genre-first Medium (0.68), mood-first
+        Medium (0.69), energy-focused Medium (0.61)) and use mood-first, which puts the emphasis
+        somewhere else; the songs available have not changed.
+ACT 1   search("", mode=mood-first) -> ok, 2 song(s), top confidence Medium (0.69)
+CHECK   good enough: Medium confidence (0.69).
+DECIDE  improved the result by changing: scoring mode balanced to mood-first.
+
+Request : (none, ranking by preferences only)
+Prefs   : genre metal, mood peaceful, energy 0.0, valence 1.0, acousticness 0.0
+Mode    : mood-first
+Note    : the agent changed the request (scoring mode balanced to mood-first). You asked: ""
+Status  : ok, 2 song(s), overall confidence Medium (0.69)
+
+1. Birchwood Lullaby by Moss & Ember  [folk / peaceful]
+   score 0.65 | confidence Medium (0.69): strength 0.65, separation 1.00, coverage n/a
+   why: It is a folk song with a peaceful mood and a low-energy acoustic sound. Folk is simple,
+        acoustic music that tells stories, usually with a gentle voice and a guitar. Its tags are
+        peaceful, cozy, dreamy. (built from the song facts)
+   scored by: energy close to target: 0.24 vs 0.00 (+0.15); acousticness close to target: 0.93 vs
+              0.00 (+0.01); valence close to target: 0.58 vs 1.00 (+0.09); mood match: peaceful
+              (+0.40)
+
+2. Island Sway by Sol Rivera  [reggae / uplifting]
+   score 0.31 | confidence Low (0.27): strength 0.31, separation 0.03, coverage n/a
+   why: It is a reggae song with an uplifting mood and a medium-energy sound. Reggae is relaxed
+        music with offbeat rhythms from Jamaica and a sunny, laid-back feel. Its tags are carefree,
+        sunny, warm. (built from the song facts)
+   scored by: energy close to target: 0.58 vs 0.00 (+0.08); acousticness close to target: 0.31 vs
+              0.00 (+0.10); valence close to target: 0.79 vs 1.00 (+0.12)
+[exit code 0]
+```
+
+### 7. Guardrail: nothing fits
 
 Too few request words match any song, even through the glossary, so the system refuses to guess.
 
@@ -285,7 +395,7 @@ Message : Nothing fits: no songs match "xylophone zebra".
 [exit code 1]
 ```
 
-### 6. Reliability: a poor fit is flagged
+### 8. Reliability: a poor fit is flagged
 
 The catalog has no good match for this listener (metal, peaceful, zero energy). The system still shows the closest songs, but labels the confidence Low and says so.
 
@@ -324,7 +434,7 @@ Warning : low confidence, these are the closest songs, not a good fit
 [exit code 0]
 ```
 
-### 7. Guardrail: invalid input
+### 9. Guardrail: invalid input
 
 An out-of-range preference is rejected with a reason instead of being ranked.
 
@@ -338,9 +448,9 @@ Message : 'energy' must be between 0 and 1, not 9.
 [exit code 2]
 ```
 
-### 8. Evaluation harness
+### 10. Evaluation harness
 
-Twenty-three predefined cases run through the same pipeline and are checked against the expected songs, status and confidence (the full table is under Testing summary).
+Twenty-nine predefined cases run through the same pipeline and are checked against the expected songs, status and confidence (the full table is under Testing summary).
 
 ```
 $ python -m src.evaluate --brief
@@ -362,25 +472,31 @@ R1  PASS  Library Rain, High (0.88)          Glossary: 'mellow homework' reaches
 R2  PASS  nothing_fits                       The same request without the glossary finds nothing
 R3  PASS  Velvet Hours, Medium (0.74)        Glossary: 'rnb groove' reaches the r&b song
 R4  PASS  Sunrise City, High (0.96)          Glossary: 'catchy upbeat' reaches the pop songs
+A1  PASS  Coffee Shop Stories, High (0.82)   Agent: drops the word that matches no song ('jazz zebra')
+A2  PASS  Library Rain, High (0.85)          Agent: nonsense words, so it ranks by the preferences alone
+A3  PASS  Coffee Shop Stories, High (0.82)   Agent: words that never co-occur, keeps the strongest ('jazz metal')
+A4  PASS  Birchwood Lullaby, Medium (0.69)   Agent: Low confidence, so it switches the scoring mode
+A5  PASS  Library Rain, High (0.88)          Agent: a good first search is left alone
+A6  PASS  invalid_input                      Agent: invalid input is not retried
 G1  PASS  nothing_fits                       Nonsense words: nothing fits
 G2  PASS  nothing_fits                       One real word and one unknown word: refused
 G3  PASS  nothing_fits                       Only filler words: nothing fits
 G4  PASS  invalid_input                      Out-of-range energy is rejected with a reason
 G5  PASS  invalid_input                      A 500-character request is rejected
 
-23 of 23 cases passed (100%). Average top-result confidence 0.86 across 17 cases that returned songs (High 13, Medium 3, Low 1).
+29 of 29 cases passed (100%). Average top-result confidence 0.85 across 22 cases that returned songs (High 17, Medium 4, Low 1).
 [exit code 0]
 ```
 
-### 9. Test suite
+### 11. Test suite
 
 ```
 $ python -m pytest -q
-........................................................................ [ 31%]
-..............................s......................................... [ 62%]
-........................................................................ [ 93%]
-................                                                         [100%]
-231 passed, 1 skipped in 1.25s
+........................................................................ [ 26%]
+..............................................................s......... [ 53%]
+........................................................................ [ 80%]
+.....................................................                    [100%]
+268 passed, 1 skipped in 1.81s
 [exit code 0]
 ```
 
@@ -392,11 +508,12 @@ $ python -m pytest -q
 - **Strict CSV validation that fails fast.** A bad file stops the app with the line number, which is better than quietly ranking bad data.
 - **JSON-lines log.** Easy to read and to parse.
 - **Scoring modes are weight tables.** The modes (balanced, genre-first, mood-first, energy-focused) differ only in weights, so one shared scorer reads a table instead of four copies of the math.
+- **The agent is rule-based, not an LLM.** Its decisions (which word to drop, which mode to try) come from match counts and confidence, so every run is reproducible and testable, and the retry limit is a hard bound. It is off by default so ordinary searches behave exactly as before.
 - **The AI model is optional and untrusted.** The app works without a key. When Gemini is on, its output is validated word by word and replaced by a fact-based sentence if it fails. I used the standard library for the API call to avoid another dependency.
 
 ## Testing summary
 
-All **231 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
+All **268 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
 
 | File | Tests | Covers |
 |---|---|---|
@@ -404,10 +521,11 @@ All **231 tests pass** (`python -m pytest`), plus 1 live test that is skipped un
 | `test_pipeline.py` | 18 | statuses, matched words, contained failures, and the content of each log line |
 | `test_confidence.py` | 11 | bounds, monotonic behavior, exact values, labels, calibration on the demo profiles |
 | `test_retrieval.py` | 22 | stemming, stopwords, expected hits per query, the guardrail on nonsense |
-| `test_app.py` | 24 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
+| `test_app.py` | 28 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
 | `test_explain.py` | 33 | the template, the validator (accepts facts, rejects invented genre, year, artist, instrument, number), the AI step with a fake model (valid, invalid, missing, failing, cached), the client and key loading, and the skipped live test |
+| `test_agent.py` | 28 | each strategy, the critique, the bounded loop (a stand-in search that always fails shows exactly 3 retries and that no strategy repeats), invalid input never retried, deterministic traces, and a check that the traces saved in `ai_interactions.md` are the real ones |
 | `test_glossary.py` | 27 | glossary parsing (fenced blocks, single-word related words), every genre and mood has an entry, expansion, before/after retrieval, the guardrail still counting the user's words, glossary facts in explanations and in the validator |
-| `test_search_cli.py` | 14 | the terminal command: output, exit codes, profiles, flags, the Gemini option with a fake model, a real subprocess run |
+| `test_search_cli.py` | 19 | the terminal command: output, exit codes, profiles, flags, the Gemini option with a fake model, a real subprocess run |
 | `test_evaluate.py` | 27 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
 | `test_scoring_modes.py`, `test_diversity.py`, `test_table.py` | 25 | scoring modes, diversity penalty, table output |
 
@@ -422,7 +540,7 @@ Confidence on the 10 demo profiles (no typed request):
 
 ### Evaluation harness
 
-`python -m src.evaluate` runs 23 predefined cases (listener profiles, scoring modes, the diversity penalty, typed requests, glossary before/after and guardrails) through the real search pipeline. It checks each against what it should return (top song, exact list, songs included or excluded, confidence label, status), prints pass/fail with confidence, writes [reports/evaluation.md](reports/evaluation.md), and exits with code 1 if any case fails. `python -m src.evaluate --readme` refreshes the table below.
+`python -m src.evaluate` runs 29 predefined cases (listener profiles, scoring modes, the diversity penalty, typed requests, glossary before/after, the agent and guardrails) through the real search pipeline. It checks each against what it should return (top song, exact list, songs included or excluded, confidence label, status), prints pass/fail with confidence, writes [reports/evaluation.md](reports/evaluation.md), and exits with code 1 if any case fails. `python -m src.evaluate --readme` refreshes the table below.
 
 <!-- EVAL:START -->
 | ID | What it checks | Expected | Result | Top song | Confidence |
@@ -445,13 +563,19 @@ Confidence on the 10 demo profiles (no typed request):
 | R2 | The same request without the glossary finds nothing | nothing_fits | PASS | - | - |
 | R3 | Glossary: 'rnb groove' reaches the r&b song | exactly Velvet Hours; grounded explanations | PASS | Velvet Hours | Medium (0.74) |
 | R4 | Glossary: 'catchy upbeat' reaches the pop songs | exactly Sunrise City, Gym Hero; grounded explanations | PASS | Sunrise City | High (0.96) |
+| A1 | Agent: drops the word that matches no song ('jazz zebra') | exactly Coffee Shop Stories; agent recovered, 1 retry; final request "jazz" | PASS | Coffee Shop Stories | High (0.82) |
+| A2 | Agent: nonsense words, so it ranks by the preferences alone | agent recovered, 1 retry; final request: preferences only | PASS | Library Rain | High (0.85) |
+| A3 | Agent: words that never co-occur, keeps the strongest ('jazz metal') | exactly Coffee Shop Stories; agent recovered, 1 retry; final request "jazz" | PASS | Coffee Shop Stories | High (0.82) |
+| A4 | Agent: Low confidence, so it switches the scoring mode | agent improved, 1 retry; final mode mood-first; confidence Medium | PASS | Birchwood Lullaby | Medium (0.69) |
+| A5 | Agent: a good first search is left alone | exactly Library Rain, Midnight Coding; agent first_try, 0 retries | PASS | Library Rain | High (0.88) |
+| A6 | Agent: invalid input is not retried | invalid_input; agent stopped, 0 retries | PASS | - | - |
 | G1 | Nonsense words: nothing fits | nothing_fits | PASS | - | - |
 | G2 | One real word and one unknown word: refused | nothing_fits | PASS | - | - |
 | G3 | Only filler words: nothing fits | nothing_fits | PASS | - | - |
 | G4 | Out-of-range energy is rejected with a reason | invalid_input; message has ''energy' must be between 0 and 1' | PASS | - | - |
 | G5 | A 500-character request is rejected | invalid_input; message has 'too long' | PASS | - | - |
 
-23 of 23 cases passed (100%). Average top-result confidence 0.86 across 17 cases that returned songs (High 13, Medium 3, Low 1).
+29 of 29 cases passed (100%). Average top-result confidence 0.85 across 22 cases that returned songs (High 17, Medium 4, Low 1).
 <!-- EVAL:END -->
 
 The expected results were written from behavior I had already inspected, so this harness guards against regressions and checks the guardrails. It is not an independent measure of recommendation quality.
@@ -464,6 +588,7 @@ What worked: breaking the code on purpose made tests fail (weakening the confide
 - The confidence weights and thresholds were tuned by looking at the same 10 demo profiles used in the tests, so they are not independently validated. Confidence says how well the catalog fits the request, not whether you will like the song.
 - Retrieval matches words, not meaning. The glossary has 45 entries I wrote, so a word it does not list finds nothing, and a typo does too.
 - The validator checks words, not meaning, and is strict about synonyms (see the RAG section).
+- The agent's rewording is simple and rule-based. When it ignores a nonsense request and ranks by preferences alone, the results look normal, so the trace and the "Note" line are what tell the user their words were not used. Switching the scoring mode raises confidence by changing the emphasis, not because the catalog fits better.
 
 ## Reflection
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import streamlit as st
 
 from src import llm_client
+from src.agent import run_agent
 from src.explain import explain_with_ai
 from src.glossary import Glossary
 from src.guardrails import DataError
@@ -30,7 +31,7 @@ def get_index(path, use_glossary=True):
 
 
 def build_prefs(songs):
-    """Draw the sidebar and return (search text, preferences, mode, diverse, k, AI client or None, use_glossary)."""
+    """Draw the sidebar and return (search text, preferences, mode, diverse, k, AI client or None, use_glossary, use_agent)."""
     st.sidebar.header("Search")
     query = st.sidebar.text_input(
         "Describe what you want (optional)", key="search",
@@ -40,6 +41,12 @@ def build_prefs(songs):
     use_glossary = st.sidebar.checkbox(
         "Use the glossary (synonyms and explanations)", value=True, key="use_glossary",
         help="Matches related words (\"mellow\" finds \"chill\") and explains genres and moods from docs/glossary.",
+    )
+
+    use_agent = st.sidebar.checkbox(
+        "Let the assistant retry", key="use_agent",
+        help="If nothing fits or confidence is Low, it rephrases the request, relaxes optional preferences "
+             "or tries another scoring mode (at most 3 retries) and shows what it did.",
     )
 
     client = llm_client.make_client()
@@ -81,7 +88,7 @@ def build_prefs(songs):
     mode = st.sidebar.radio("Scoring mode", list(SCORING_MODES), index=list(SCORING_MODES).index(DEFAULT_MODE), key="mode")
     diverse = st.sidebar.checkbox("Mix up artists and genres (diversity penalty)", key="diverse")
     k = st.sidebar.slider("How many songs", 3, 10, 5, key="k")
-    return query, prefs, mode, diverse, k, (client if use_ai else None), use_glossary
+    return query, prefs, mode, diverse, k, (client if use_ai else None), use_glossary, use_agent
 
 
 def main():
@@ -96,9 +103,20 @@ def main():
         st.error(f"The song list could not be loaded. {error}")
         return
 
-    query, prefs, mode, diverse, k, ai_client, use_glossary = build_prefs(songs)
+    query, prefs, mode, diverse, k, ai_client, use_glossary, use_agent = build_prefs(songs)
     index = get_index(DATA_PATH, use_glossary)
-    outcome = search(index, query, prefs, k=k, mode=mode, diverse=diverse)
+    if use_agent:
+        agent = run_agent(index, query, prefs, k=k, mode=mode, diverse=diverse)
+        outcome, mode = agent.outcome, agent.final.mode
+        with st.expander("What the assistant did", expanded=agent.request_changed):
+            st.code(agent.trace_text(), language=None)
+        if agent.request_changed:
+            st.info(
+                f"The assistant changed your request: {'; '.join(agent.changes)}. "
+                f'You asked "{agent.original.query}" with the {agent.original.mode} scoring mode.'
+            )
+    else:
+        outcome = search(index, query, prefs, k=k, mode=mode, diverse=diverse)
 
     if outcome.status == "invalid_input":
         st.error(f"Please check your input. {outcome.message}")

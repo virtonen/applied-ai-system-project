@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from src import llm_client
+from src.agent import run_agent
 from src.explain import explain_with_ai
 from src.glossary import Glossary
 from src.guardrails import DataError
@@ -53,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--diverse", action="store_true", help="penalize repeated artists and genres")
     parser.add_argument("-k", type=int, default=5, help="how many songs (default 5)")
     parser.add_argument("--no-glossary", action="store_true", help="do not use the glossary (no synonyms, no genre or mood explanations)")
+    parser.add_argument("--agent", action="store_true", help="let the agent retry (rephrase, relax, try other modes) and print its trace")
     parser.add_argument("--ai", action="store_true", help="ask Gemini to write the 'why' (needs GEMINI_API_KEY)")
     parser.add_argument("--data", default=DEFAULT_DATA, help="song CSV to use")
     return parser
@@ -96,12 +98,14 @@ def _wrapped(label: str, text: str) -> str:
     return textwrap.fill(text, width=WIDTH, initial_indent=f"   {label}", subsequent_indent=" " * (3 + len(label)))
 
 
-def format_outcome(outcome: SearchOutcome, prefs: Dict, mode: str, whys: List, diverse: bool) -> str:
+def format_outcome(outcome: SearchOutcome, prefs: Dict, mode: str, whys: List, diverse: bool, note: str = "") -> str:
     lines = [
         f'Request : {outcome.query or "(none, ranking by preferences only)"}',
         f"Prefs   : {describe_prefs(prefs)}",
         f"Mode    : {mode}{' + diversity penalty' if diverse else ''}",
     ]
+    if note:
+        lines.append(f"Note    : {note}")
     if outcome.status != "ok":
         lines.append(f"Status  : {outcome.status}")
         lines.append(f"Message : {outcome.message}")
@@ -143,7 +147,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"error: the song list could not be loaded. {error}", file=sys.stderr)
         return EXIT_CODES["invalid_input"]
 
-    outcome = search(index, args.query, prefs, k=args.k, mode=args.mode, diverse=args.diverse)
+    note, mode = "", args.mode
+    if args.agent:
+        agent = run_agent(index, args.query, prefs, k=args.k, mode=args.mode, diverse=args.diverse)
+        outcome, prefs, mode = agent.outcome, agent.final.prefs, agent.final.mode
+        print(agent.trace_text() + "\n")
+        if agent.request_changed:
+            note = f'the agent changed the request ({"; ".join(agent.changes)}). You asked: "{agent.original.query}"'
+    else:
+        outcome = search(index, args.query, prefs, k=args.k, mode=args.mode, diverse=args.diverse)
 
     whys = [r.why for r in outcome.results]
     if args.ai and outcome.status == "ok":
@@ -153,7 +165,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             whys = explain_with_ai(outcome.results, outcome.query, client, glossary=index.glossary)
 
-    print(format_outcome(outcome, prefs, args.mode, whys, args.diverse))
+    print(format_outcome(outcome, prefs, mode, whys, args.diverse, note))
     return EXIT_CODES[outcome.status]
 
 

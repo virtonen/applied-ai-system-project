@@ -115,3 +115,35 @@ def test_the_glossary_is_used_by_default_and_can_be_switched_off(capsys):
     assert "Lofi is mellow, slightly worn-sounding beats" in flat and "the glossary links those words" in flat
     code, out, _ = run(capsys, "mellow homework", *LOFI, "--no-glossary")
     assert code == 1 and "Status  : nothing_fits" in out
+
+
+# ----- the agent -----
+
+def test_without_the_agent_a_dead_word_means_nothing_fits(capsys):
+    code, out, _ = run(capsys, "jazz zebra", *LOFI)
+    assert code == 1 and "nothing_fits" in out and "PLAN" not in out
+
+
+def test_the_agent_recovers_and_says_what_it_changed(capsys):
+    code, out, _ = run(capsys, "jazz zebra", *LOFI, "--agent")
+    flat = " ".join(out.split())
+    assert code == 0 and out.startswith("PLAN    search as typed.")
+    assert 'REVISE  drop "zebra"' in out and 'ACT 1   search("jazz", mode=balanced)' in out
+    assert 'Note    : the agent changed the request (dropped "zebra"). You asked: "jazz zebra"' in out
+    assert "Request : jazz\n" in out and "1. Coffee Shop Stories" in out and "DECIDE  recovered after 1 retry" in out
+
+
+def test_the_agent_leaves_a_good_search_alone(capsys):
+    code, out, _ = run(capsys, "cozy rainy study", *LOFI, "--agent")
+    assert code == 0 and "REVISE" not in out and "Note    :" not in out and "1. Library Rain" in out
+
+
+def test_the_agent_shows_a_mode_change(capsys):
+    code, out, _ = run(capsys, "--profile", "Extreme Targets", "--agent", "-k", "3")
+    assert code == 0 and "Mode    : mood-first" in out and "scoring mode balanced to mood-first" in out
+    assert "Warning : low confidence" not in out  # it is Medium after the change
+
+
+def test_the_agent_does_not_retry_invalid_input(capsys):
+    code, out, _ = run(capsys, *LOFI, "--energy", "9", "--agent")
+    assert code == 2 and "stopped without a result and without retrying" in out and "REVISE" not in out

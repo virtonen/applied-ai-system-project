@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 
 from src.main import ADVANCED_PROFILES, ADVERSARIAL_PROFILES, STANDARD_PROFILES
 from src.logging_utils import configure_logging
+from src.agent import AgentResult, run_agent
 from src.explain import validate_explanation
 from src.glossary import Glossary
 from src.pipeline import SearchOutcome, search
@@ -46,6 +47,7 @@ class Case:
     top (title ranked first), exact (full ordered list of titles), includes, excludes (lists of
     titles), before ((a, b): a ranks above b), count, confidence (label of the top result),
     max_per_artist, grounded (True: every result's explanation uses only that song's facts and the request).
+    For agent cases: agent_status, retries, final_query, final_mode.
     """
 
     id: str
@@ -56,6 +58,7 @@ class Case:
     mode: str = "balanced"
     diverse: bool = False
     use_glossary: bool = True
+    agent: bool = False
     expect: Dict = field(default_factory=dict)
 
 
@@ -100,6 +103,19 @@ CASES: List[Case] = [
          expect=dict(exact=["Velvet Hours"], grounded=True)),
     Case("R4", "Glossary: 'catchy upbeat' reaches the pop songs", PROFILES["High-Energy Pop"], query="catchy upbeat",
          expect=dict(exact=["Sunrise City", "Gym Hero"], grounded=True)),
+    # Agent: plan, act, critique, retry
+    Case("A1", "Agent: drops the word that matches no song ('jazz zebra')", PROFILES["Chill Lofi"], query="jazz zebra", agent=True,
+         expect=dict(exact=["Coffee Shop Stories"], agent_status="recovered", retries=1, final_query="jazz")),
+    Case("A2", "Agent: nonsense words, so it ranks by the preferences alone", PROFILES["Chill Lofi"], query="xylophone zebra", agent=True,
+         expect=dict(count=5, agent_status="recovered", retries=1, final_query="")),
+    Case("A3", "Agent: words that never co-occur, keeps the strongest ('jazz metal')", PROFILES["Chill Lofi"], query="jazz metal", agent=True,
+         expect=dict(exact=["Coffee Shop Stories"], agent_status="recovered", retries=1, final_query="jazz")),
+    Case("A4", "Agent: Low confidence, so it switches the scoring mode", PROFILES["Extreme Targets"], agent=True,
+         expect=dict(agent_status="improved", retries=1, final_mode="mood-first", confidence="Medium")),
+    Case("A5", "Agent: a good first search is left alone", PROFILES["Chill Lofi"], query="cozy rainy study", agent=True,
+         expect=dict(exact=["Library Rain", "Midnight Coding"], agent_status="first_try", retries=0)),
+    Case("A6", "Agent: invalid input is not retried", {"energy": 9}, agent=True,
+         expect=dict(status="invalid_input", agent_status="stopped", retries=0)),
     # Guardrails
     Case("G1", "Nonsense words: nothing fits", PROFILES["Chill Lofi"], query="xylophone zebra",
          expect=dict(status="nothing_fits", count=0)),
@@ -119,13 +135,14 @@ class Result:
     case: Case
     outcome: SearchOutcome
     failures: List[str]
+    agent: Optional[AgentResult] = None
 
     @property
     def passed(self) -> bool:
         return not self.failures
 
 
-def check(outcome: SearchOutcome, expect: Dict, glossary=None) -> List[str]:
+def check(outcome: SearchOutcome, expect: Dict, glossary=None, agent: Optional[AgentResult] = None) -> List[str]:
     """Return a list of problems (empty means the case passed)."""
     problems = []
     titles = [r.song["title"] for r in outcome.results]
@@ -160,6 +177,11 @@ def check(outcome: SearchOutcome, expect: Dict, glossary=None) -> List[str]:
             ok, reason = validate_explanation(r.why.text, r.song, outcome.query, glossary)
             if not ok:
                 problems.append(f"explanation for {r.song['title']} is not grounded: {reason}")
+    if agent is not None:
+        for key, actual in (("agent_status", agent.status), ("retries", agent.retries),
+                            ("final_query", agent.final.query), ("final_mode", agent.final.mode)):
+            if key in expect and actual != expect[key]:
+                problems.append(f"{key} was {actual!r}, expected {expect[key]!r}")
     if "max_per_artist" in expect:
         artists = [r.song["artist"] for r in outcome.results]
         worst = max((artists.count(a) for a in artists), default=0)
@@ -174,8 +196,13 @@ def run_cases(index: SongIndex, cases: List[Case], plain_index: Optional[SongInd
     results = []
     for case in cases:
         chosen = index if case.use_glossary else plain_index
-        outcome = search(chosen, case.query, case.prefs, k=case.k, mode=case.mode, diverse=case.diverse)
-        results.append(Result(case, outcome, check(outcome, case.expect, chosen.glossary)))
+        agent = None
+        if case.agent:
+            agent = run_agent(chosen, case.query, case.prefs, k=case.k, mode=case.mode, diverse=case.diverse)
+            outcome = agent.outcome
+        else:
+            outcome = search(chosen, case.query, case.prefs, k=case.k, mode=case.mode, diverse=case.diverse)
+        results.append(Result(case, outcome, check(outcome, case.expect, chosen.glossary, agent), agent))
     return results
 
 
@@ -199,6 +226,12 @@ def describe(expect: Dict) -> str:
         parts.append(f"{expect['before'][0]} above {expect['before'][1]}")
     if "max_per_artist" in expect:
         parts.append(f"max {expect['max_per_artist']} per artist")
+    if "agent_status" in expect:
+        parts.append(f"agent {expect['agent_status']}, {expect['retries']} retr{'y' if expect['retries'] == 1 else 'ies'}")
+    if "final_query" in expect:
+        parts.append(f'final request "{expect["final_query"]}"' if expect["final_query"] else "final request: preferences only")
+    if "final_mode" in expect:
+        parts.append(f"final mode {expect['final_mode']}")
     if "confidence" in expect:
         parts.append(f"confidence {expect['confidence']}")
     if expect.get("grounded"):

@@ -233,3 +233,33 @@ def test_switching_the_glossary_off_removes_the_synonym_matches():
     at = run_app(**LOFI, search="mellow homework", use_glossary=False)
     assert not at.exception and len(at.warning) == 1 and "Nothing fits" in at.warning[0].value
     assert len(at.dataframe) == 0
+
+
+# ----- the assistant (agent) -----
+
+def test_the_assistant_is_off_by_default_so_a_dead_word_means_nothing_fits():
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert at.checkbox(key="use_agent").value is False
+    at = run_app(**LOFI, search="jazz zebra")
+    assert len(at.warning) == 1 and "Nothing fits" in at.warning[0].value and len(at.dataframe) == 0
+
+
+def test_the_assistant_recovers_and_shows_what_it_did():
+    at = run_app(**LOFI, search="jazz zebra", use_agent=True)
+    assert not at.exception and songs(at) == ["Coffee Shop Stories"] and len(at.warning) == 0
+    assert any("The assistant changed your request" in i.value and "jazz zebra" in i.value for i in at.info)
+    assert [e.label for e in at.expander][0] == "What the assistant did"
+    assert 'REVISE  drop "zebra"' in at.code[0].value
+
+
+def test_the_assistant_changes_the_mode_for_a_low_confidence_profile():
+    at = run_app(**EXTREME, use_agent=True)
+    assert not at.exception and len(at.warning) == 0  # Medium after the mode change, so no Low warning
+    assert any("scoring mode balanced to mood-first" in i.value for i in at.info)
+    assert "(mood-first)" in [s.value for s in at.subheader][0]
+
+
+def test_the_assistant_leaves_a_good_search_alone():
+    at = run_app(**LOFI, search="cozy rainy study", use_agent=True)
+    assert songs(at) == ["Library Rain", "Midnight Coding"] and len(at.info) == 0
+    assert "REVISE" not in at.code[0].value

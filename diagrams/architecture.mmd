@@ -1,4 +1,4 @@
-%% VibeMatch system architecture (current: logging, guardrails, confidence, two retrieval sources, grounded RAG explanations, evaluation harness).
+%% VibeMatch system architecture (current: logging, guardrails, confidence, two retrieval sources, grounded RAG explanations, agent loop, evaluation harness).
 %% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
 flowchart TD
     USER(["User<br/>typed request + sliders"])
@@ -28,10 +28,12 @@ flowchart TD
         VALID{"Validator<br/>every word must come from<br/>the facts or the request"}
     end
 
-    LOG[("logs/recommender.log<br/>one JSON line per search")]
-    TESTS{{"pytest: 231 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+    AGENT["Agent (src/agent.py), optional<br/>PLAN, ACT (search), CHECK, REVISE<br/>max 3 retries, never repeats a strategy<br/>stops on invalid input or error"]
 
-    EVAL["Evaluation harness (src/evaluate.py)<br/>23 predefined cases with expected songs<br/>pass/fail + average confidence"]
+    LOG[("logs/recommender.log<br/>one JSON line per search")]
+    TESTS{{"pytest: 268 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+
+    EVAL["Evaluation harness (src/evaluate.py)<br/>29 predefined cases with expected songs<br/>pass/fail + average confidence"]
     REPORT[("reports/evaluation.md<br/>table copied into the README")]
 
     CSV --> LOAD
@@ -40,6 +42,10 @@ flowchart TD
 
     USER --> UI
     UI -->|"query + prefs"| GUARD
+    UI -->|"assistant on:<br/>query + prefs"| AGENT
+    AGENT -->|"each ACT runs a search;<br/>REVISE changes request, mode<br/>or optional prefs"| GUARD
+    AGENT -->|"trace + what changed"| UI
+    AGENT -.->|"log retries, strategies"| LOG
     GUARD -->|"invalid input: message"| UI
     GUARD --> RETR
     RETR -->|"no match: Nothing fits"| UI

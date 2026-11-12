@@ -13,6 +13,7 @@
 - **Retrieval (two sources).** If the user types a request, only songs that share enough words with it are kept. The words are matched against each song's title, artist, genre, mood, tags and a few vibe words made from its numbers ("calm", "acoustic", "energetic"). The second source is a glossary I wrote (`docs/glossary/`, 45 entries): a request word that matches an entry is also matched against that entry's related words, so "mellow" finds "chill" and "homework" finds "study". A multi-word request still needs at least two of the user's own words to match, otherwise the app says "Nothing fits".
 - **Scoring.** Each remaining song scores by how close it is to the listener's targets (energy 0.35, acousticness 0.25, valence 0.20) plus bonuses for a mood match (0.12) and a genre match (0.08). Optional preferences (popularity, decade, mood tags, instrumentalness, clean lyrics) join in only when set, and the score is scaled to stay between 0 and 1. Four modes change the weights: balanced, genre-first, mood-first and energy-focused. An optional diversity penalty lowers songs whose artist or genre was already picked.
 - **Confidence.** Each result gets 0.7 × strength (its score) + 0.1 × separation (lead over the next song) + 0.2 × coverage (share of request words matched). Labels: High at 0.80 or more, Medium at 0.55 or more, otherwise Low.
+- **Agent (optional).** With the agent on, a search that finds nothing or has Low confidence is retried up to 3 times: it drops words that match no song, keeps the strongest word, ranks by the preferences alone, relaxes optional preferences, or switches the scoring mode. It follows fixed rules (no language model), logs a trace of every step, and tells the user what it changed.
 - **Grounded explanations.** Each result gets a "why this song" sentence built from that song's retrieved facts, including the glossary's description of its genre and mood. With Gemini switched on, the model writes it, and a validator rejects any sentence containing a word that is not in the song's facts, the user's request or a short list of plain connecting words. A rejected or failed answer is replaced by a fact-based sentence.
 - **Guardrails and logging.** Bad input or a bad song file gives a clear message. Every search is logged as one JSON line. Details are in the [README](README.md#reliability-logging-guardrails-and-confidence).
 
@@ -35,7 +36,7 @@
 
 ## 5. Evaluation
 
-231 automated tests pass (`python -m pytest`). The 10 demo profiles are 3 typical listeners (High-Energy Pop, Chill Lofi, Deep Intense Rock), 3 adversarial ones (Sad but Energetic, Unknown Genre and Mood, Extreme Targets) and 4 using the advanced features.
+268 automated tests pass (`python -m pytest`). The 10 demo profiles are 3 typical listeners (High-Energy Pop, Chill Lofi, Deep Intense Rock), 3 adversarial ones (Sad but Energetic, Unknown Genre and Mood, Extreme Targets) and 4 using the advanced features.
 
 | Check | Result |
 |---|---|
@@ -50,7 +51,12 @@
 | Model invents a genre, year or artist | Sentence rejected, fact-based sentence shown, reason logged |
 | Model call fails (HTTP error, timeout, blocked reply) | Page still works, fact-based sentences shown, error logged without the key |
 | Live Gemini calls (6 real calls during development, including the README screenshot and sample runs) | Replies passed validation, including with glossary facts in the prompt |
-| Evaluation harness (`python -m src.evaluate`) | 23 of 23 cases pass, average top-result confidence 0.86 |
+| Evaluation harness (`python -m src.evaluate`) | 29 of 29 cases pass, average top-result confidence 0.86 |
+| Agent: `jazz zebra` (one dead word) | Recovers by dropping `zebra`, answers `jazz`, says so |
+| Agent: `xylophone zebra` (no usable words) | Ranks by preferences alone, says the request was ignored |
+| Agent: Extreme Targets (Low confidence) | Switches to mood-first, Medium confidence, says the catalog did not change |
+| Agent: invalid input (`energy: 9`) | Not retried or reworded, stops with the reason |
+| Agent with a search that always fails | Exactly 3 retries, then stops; no strategy repeats |
 | Glossary before/after: `mellow homework`, `rnb groove`, `catchy upbeat` | Nothing found without the glossary; 3, 1 and 2 songs with it |
 | Glossary does not weaken the guardrail (`mellow zebra`) | Still "Nothing fits" |
 | Glossary text in an explanation for a song of another genre | Rejected by the validator |
@@ -62,6 +68,7 @@ Breaking the code on purpose made tests fail: weakening the confidence weights f
 - **Prompt injection and quota abuse.** The typed request is placed in the model's prompt, so someone could try to steer the model or burn API calls. Prevention: the request is limited to 200 characters and stripped of control characters; the model is off unless the user ticks a box; one call covers a whole search and repeats are cached; and the output is checked word by word, so injected instructions cannot make the app show text that is not in the song facts.
 - **Leaking the API key.** The key lives in a gitignored `.env` or the environment, is sent in a request header (not a URL) and is never logged. Tests cannot see the real key.
 - **Privacy.** With the Gemini option on, the typed request and the song facts are sent to Google. Nothing is sent otherwise, and the README says so.
+- **The agent can answer a different question than the user asked.** Dropping a word or ignoring a nonsense request produces results that look normal. Prevention: it is off by default, it only changes the request words, scoring mode and optional preferences, it never skips input validation, and the output states what was changed and quotes the original request. An agent that rewrites requests should always show that it did.
 - **Confidence read as accuracy.** A High label could be mistaken for "you will like this". The docs say it only measures how well the catalog fits the request.
 - **Judging people or artists.** The popularity values are made up, so the system must not be used to rank artists or to profile listeners.
 

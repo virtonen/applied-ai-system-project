@@ -87,6 +87,23 @@ class SongIndex:
             for token in tokens:
                 self.index.setdefault(token, []).append(song_id)
 
+    def term_hits(self, query: str) -> List[Tuple[str, int]]:
+        """
+        For each useful word in the request, in order: how many songs it matches, directly or
+        through the glossary. A count of 0 means no song matches that word at all.
+        """
+        counts = []
+        for token, word in query_terms(query).items():
+            choices = [((token,), None)] + (self.glossary.expand(word) if self.glossary else [])
+            matching = {
+                song_id
+                for stems, _ in choices
+                for song_id, tokens in enumerate(self.tokens)
+                if all(s in tokens for s in stems)
+            }
+            counts.append((word, len(matching)))
+        return counts
+
     def retrieve(self, query: str) -> List[Tuple[Dict, List[str]]]:
         """
         Return (song, matched query words) for every song that passes the guardrail,
