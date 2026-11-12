@@ -13,6 +13,7 @@ from src.evaluate import (
     to_markdown,
     update_readme,
 )
+from src.glossary import Glossary
 from src.pipeline import search
 from src.recommender import load_songs
 from src.retrieval import SongIndex
@@ -20,7 +21,7 @@ from src.retrieval import SongIndex
 
 @pytest.fixture(scope="module")
 def index():
-    return SongIndex(load_songs("data/songs.csv"))
+    return SongIndex(load_songs("data/songs.csv"), Glossary.load())
 
 
 @pytest.fixture(scope="module")
@@ -160,9 +161,11 @@ def test_the_grounded_check_catches_an_explanation_with_invented_facts(index):
     from src.explain import Why
 
     outcome = search(index, "", evaluate.PROFILES["Chill Lofi"], k=3)
-    assert check(outcome, dict(grounded=True)) == []
+    assert check(outcome, dict(grounded=True), index.glossary) == []
+    # the glossary sentence is only grounded because the glossary is part of the retrieved facts
+    assert any("not grounded" in problem for problem in check(outcome, dict(grounded=True), None))
     outcome.results[0].why = Why("It is a jazz song from 1995.", "ai")
-    problems = check(outcome, dict(grounded=True))
+    problems = check(outcome, dict(grounded=True), index.glossary)
     assert len(problems) == 1 and "not grounded" in problems[0] and "1995" in problems[0]
 
 
@@ -183,3 +186,11 @@ def test_brief_output_lists_the_reasons_for_a_failure(index):
 
     text = to_brief(run_cases(index, [failing_case()]))
     assert "FAIL" in text and "-> top was" in text
+
+
+def test_the_glossary_cases_show_a_before_and_after(index):
+    with_glossary = {r.case.id: r for r in run_cases(index, [c for c in CASES if c.id in ("R1", "R2")])}
+    assert with_glossary["R1"].outcome.status == "ok" and with_glossary["R2"].outcome.status == "nothing_fits"
+    assert with_glossary["R1"].case.query == with_glossary["R2"].case.query
+    assert with_glossary["R2"].case.use_glossary is False and with_glossary["R1"].passed and with_glossary["R2"].passed
+    assert "mellow as chill" in with_glossary["R1"].outcome.results[0].why.text

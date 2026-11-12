@@ -9,10 +9,13 @@ ranked by score_song, so retrieval narrows the catalog and the scorer orders wha
 
 Changes from DocuBot: documents are songs, not heading sections; the stopword list drops
 doc words and adds music words; stemming also strips a trailing "y" ("rainy" -> "rain").
+
+A second source, the glossary (src/glossary.py), widens what a request word can match: "mellow"
+also matches "chill", "relaxed" and "calm". The guardrail still counts the user's own words.
 """
 
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from src.recommender import DEFAULT_MODE, recommend_songs
 
@@ -75,8 +78,9 @@ def song_to_text(song: Dict) -> str:
 class SongIndex:
     """An inverted index over the songs, with a guardrail on how many words must match."""
 
-    def __init__(self, songs: List[Dict]):
+    def __init__(self, songs: List[Dict], glossary=None):
         self.songs = songs
+        self.glossary = glossary  # optional second source (src/glossary.py)
         self.tokens = [set(tokenize(song_to_text(song))) for song in songs]
         self.index: Dict[str, List[int]] = {}
         for song_id, tokens in enumerate(self.tokens):
@@ -87,19 +91,36 @@ class SongIndex:
         """
         Return (song, matched query words) for every song that passes the guardrail,
         best match first. Ties keep catalog order. An empty list means "nothing fits".
+
+        A request word matches a song directly, or through the glossary. A word matched through
+        the glossary is reported as "word (as term)", for example "mellow (as chill)".
         """
         terms = query_terms(query)
         if not terms:
             return []
 
+        # For each request word: the song must contain all the stems of at least one option
+        options: Dict[str, List[Tuple[Tuple[str, ...], Optional[str]]]] = {}
+        for token, word in terms.items():
+            options[token] = [((token,), None)]
+            if self.glossary:
+                options[token] += self.glossary.expand(word)
+
         candidates = set()
-        for token in terms:
-            candidates.update(self.index.get(token, []))
+        for choices in options.values():
+            for stems, _ in choices:
+                for token in stems:
+                    candidates.update(self.index.get(token, []))
 
         min_matched = min(MIN_MATCHED_WORDS, len(terms))
         hits = []
         for song_id in candidates:
-            matched = [word for token, word in terms.items() if token in self.tokens[song_id]]
+            matched = []
+            for token, word in terms.items():
+                for stems, shown in options[token]:
+                    if all(s in self.tokens[song_id] for s in stems):
+                        matched.append(word if shown is None else f"{word} (as {shown})")
+                        break
             if len(matched) >= min_matched:
                 hits.append((song_id, matched))
 

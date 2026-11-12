@@ -86,7 +86,7 @@ def search(
             if matched:
                 explanation = f"search match: {', '.join(matched)}; {explanation}"
             outcome.results.append(
-                Ranked(song, score, explanation, confidence(score, next_score, coverage), matched, template_why(song, matched))
+                Ranked(song, score, explanation, confidence(score, next_score, coverage), matched, template_why(song, matched, index.glossary))
             )
         outcome.status = "ok"
         return outcome
@@ -110,6 +110,7 @@ def search(
             level=logging.INFO if error_text is None else logging.WARNING if outcome.status == "invalid_input" else logging.ERROR,
             query=outcome.query,
             matched_words=sorted({word for r in outcome.results for word in r.matched_words}),
+            via_glossary=sorted({word for r in outcome.results for word in r.matched_words if " (as " in word}),
             mode=mode,
             diverse=diverse,
             k=k if isinstance(k, int) else None,

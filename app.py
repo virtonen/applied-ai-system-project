@@ -8,6 +8,7 @@ import streamlit as st
 
 from src import llm_client
 from src.explain import explain_with_ai
+from src.glossary import Glossary
 from src.guardrails import DataError
 from src.logging_utils import log_event
 from src.pipeline import search
@@ -24,16 +25,21 @@ def get_songs(path):
 
 
 @st.cache_resource
-def get_index(path):
-    return SongIndex(get_songs(path))
+def get_index(path, use_glossary=True):
+    return SongIndex(get_songs(path), Glossary.load() if use_glossary else None)
 
 
 def build_prefs(songs):
-    """Draw the sidebar and return (search text, preferences dict, mode, diverse, k, use_ai)."""
+    """Draw the sidebar and return (search text, preferences, mode, diverse, k, AI client or None, use_glossary)."""
     st.sidebar.header("Search")
     query = st.sidebar.text_input(
         "Describe what you want (optional)", key="search",
         placeholder="e.g. cozy rainy study", help="Only songs that match these words are ranked.",
+    )
+
+    use_glossary = st.sidebar.checkbox(
+        "Use the glossary (synonyms and explanations)", value=True, key="use_glossary",
+        help="Matches related words (\"mellow\" finds \"chill\") and explains genres and moods from docs/glossary.",
     )
 
     client = llm_client.make_client()
@@ -75,7 +81,7 @@ def build_prefs(songs):
     mode = st.sidebar.radio("Scoring mode", list(SCORING_MODES), index=list(SCORING_MODES).index(DEFAULT_MODE), key="mode")
     diverse = st.sidebar.checkbox("Mix up artists and genres (diversity penalty)", key="diverse")
     k = st.sidebar.slider("How many songs", 3, 10, 5, key="k")
-    return query, prefs, mode, diverse, k, (client if use_ai else None)
+    return query, prefs, mode, diverse, k, (client if use_ai else None), use_glossary
 
 
 def main():
@@ -90,8 +96,9 @@ def main():
         st.error(f"The song list could not be loaded. {error}")
         return
 
-    query, prefs, mode, diverse, k, ai_client = build_prefs(songs)
-    outcome = search(get_index(DATA_PATH), query, prefs, k=k, mode=mode, diverse=diverse)
+    query, prefs, mode, diverse, k, ai_client, use_glossary = build_prefs(songs)
+    index = get_index(DATA_PATH, use_glossary)
+    outcome = search(index, query, prefs, k=k, mode=mode, diverse=diverse)
 
     if outcome.status == "invalid_input":
         st.error(f"Please check your input. {outcome.message}")
@@ -134,7 +141,7 @@ def main():
     whys = [r.why for r in outcome.results]
     if ai_client is not None:
         with st.spinner("Asking Gemini, then checking its answer against the song facts..."):
-            whys = explain_with_ai(outcome.results, outcome.query, ai_client)
+            whys = explain_with_ai(outcome.results, outcome.query, ai_client, glossary=index.glossary)
 
     st.subheader("Why these songs?")
     for rank, (r, why) in enumerate(zip(outcome.results, whys), start=1):

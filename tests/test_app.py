@@ -217,3 +217,19 @@ def test_a_failing_model_does_not_break_the_page(monkeypatch):
     at = run_app(**LOFI, use_llm=True)
     assert not at.exception and len(at.dataframe[0].value) == 5
     assert any("HTTP 429" in c for c in _captions(at))
+
+
+# ----- the glossary -----
+
+def test_the_glossary_option_is_on_by_default_and_finds_synonyms():
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert at.checkbox(key="use_glossary").value is True
+    at = run_app(**LOFI, search="mellow homework")
+    assert not at.exception and set(songs(at)) == {"Library Rain", "Midnight Coding", "Focus Flow"}
+    assert "mellow (as chill)" in page_text(at)
+
+
+def test_switching_the_glossary_off_removes_the_synonym_matches():
+    at = run_app(**LOFI, search="mellow homework", use_glossary=False)
+    assert not at.exception and len(at.warning) == 1 and "Nothing fits" in at.warning[0].value
+    assert len(at.dataframe) == 0

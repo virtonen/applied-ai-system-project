@@ -1,4 +1,4 @@
-%% VibeMatch system architecture (current: logging, guardrails, confidence, grounded RAG explanations, evaluation harness).
+%% VibeMatch system architecture (current: logging, guardrails, confidence, two retrieval sources, grounded RAG explanations, evaluation harness).
 %% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
 flowchart TD
     USER(["User<br/>typed request + sliders"])
@@ -10,6 +10,7 @@ flowchart TD
 
     subgraph DATA["Data"]
         CSV[("data/songs.csv")]
+        GLOSS[("docs/glossary/*.md<br/>45 entries: genres, moods,<br/>vibe words (2nd source)")]
         LOAD["load_songs<br/>CSV guardrails:<br/>missing file, empty file,<br/>missing column, bad value,<br/>duplicate id"]
     end
 
@@ -28,9 +29,9 @@ flowchart TD
     end
 
     LOG[("logs/recommender.log<br/>one JSON line per search")]
-    TESTS{{"pytest: 200 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+    TESTS{{"pytest: 231 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
 
-    EVAL["Evaluation harness (src/evaluate.py)<br/>19 predefined cases with expected songs<br/>pass/fail + average confidence"]
+    EVAL["Evaluation harness (src/evaluate.py)<br/>23 predefined cases with expected songs<br/>pass/fail + average confidence"]
     REPORT[("reports/evaluation.md<br/>table copied into the README")]
 
     CSV --> LOAD
@@ -69,3 +70,6 @@ flowchart TD
     VALID -->|"rejected or call failed:<br/>use template, log reason"| TEMPLATE
     TEMPLATE --> UI
     VALID -.->|"log rejections"| LOG
+
+    GLOSS -->|"related words:<br/>mellow matches chill"| RETR
+    GLOSS -->|"genre and mood descriptions"| FACTS

@@ -4,6 +4,7 @@ Run one search from the terminal, with the same pipeline the web app uses.
     python -m src.search "cozy rainy study" --profile "Chill Lofi"
     python -m src.search "jazz" --genre jazz --mood relaxed --energy 0.4 --mode mood-first
     python -m src.search "cozy rainy study" --profile "Chill Lofi" --ai     # Gemini writes the "why"
+    python -m src.search "mellow homework" --profile "Chill Lofi" --no-glossary   # without the glossary
 
 Exit code: 0 results, 1 nothing fits, 2 bad input or bad song file, 3 unexpected error.
 """
@@ -17,6 +18,7 @@ from typing import Dict, List, Optional
 
 from src import llm_client
 from src.explain import explain_with_ai
+from src.glossary import Glossary
 from src.guardrails import DataError
 from src.main import ADVANCED_PROFILES, ADVERSARIAL_PROFILES, STANDARD_PROFILES
 from src.pipeline import SearchOutcome, search
@@ -50,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=list(SCORING_MODES), default=DEFAULT_MODE)
     parser.add_argument("--diverse", action="store_true", help="penalize repeated artists and genres")
     parser.add_argument("-k", type=int, default=5, help="how many songs (default 5)")
+    parser.add_argument("--no-glossary", action="store_true", help="do not use the glossary (no synonyms, no genre or mood explanations)")
     parser.add_argument("--ai", action="store_true", help="ask Gemini to write the 'why' (needs GEMINI_API_KEY)")
     parser.add_argument("--data", default=DEFAULT_DATA, help="song CSV to use")
     return parser
@@ -135,7 +138,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return EXIT_CODES["invalid_input"]
 
     try:
-        index = SongIndex(load_songs(args.data))
+        index = SongIndex(load_songs(args.data), None if args.no_glossary else Glossary.load())
     except DataError as error:
         print(f"error: the song list could not be loaded. {error}", file=sys.stderr)
         return EXIT_CODES["invalid_input"]
@@ -148,7 +151,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if client is None:
             print("note: --ai needs GEMINI_API_KEY (in the environment or .env); using the song facts instead.", file=sys.stderr)
         else:
-            whys = explain_with_ai(outcome.results, outcome.query, client)
+            whys = explain_with_ai(outcome.results, outcome.query, client, glossary=index.glossary)
 
     print(format_outcome(outcome, prefs, args.mode, whys, args.diverse))
     return EXIT_CODES[outcome.status]

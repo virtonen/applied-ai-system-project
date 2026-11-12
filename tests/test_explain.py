@@ -112,7 +112,7 @@ def test_empty_long_and_wordy_text_is_rejected(songs):
     library = song(songs, "Library Rain")
     assert validate_explanation("", library) == (False, "empty explanation")
     assert "too long" in validate_explanation("lofi " * MAX_CHARS, library)[1]
-    assert "too many sentences" in validate_explanation("Lofi. Lofi. Lofi. Lofi.", library)[1]
+    assert "too many sentences" in validate_explanation("Lofi. Lofi. Lofi. Lofi. Lofi. Lofi.", library)[1]
 
 
 def test_allowed_words_come_from_this_songs_facts_only(songs):

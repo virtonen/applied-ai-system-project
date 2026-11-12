@@ -18,10 +18,14 @@ Run with `python -m src.evaluate`.
 | S2 | A one-word request is enough: 'jazz' | exactly Coffee Shop Stories | PASS | Coffee Shop Stories | High (0.82) |
 | S3 | Vibe words from numbers: 'workout powerful' | exactly Gym Hero | PASS | Gym Hero | High (0.89) |
 | S4 | 'calm acoustic' returns a full list that includes Library Rain | includes Library Rain; grounded explanations | PASS | Library Rain | High (0.97) |
+| R1 | Glossary: 'mellow homework' reaches chill and study songs | exactly Library Rain, Midnight Coding, Focus Flow; confidence High; grounded explanations | PASS | Library Rain | High (0.88) |
+| R2 | The same request without the glossary finds nothing | nothing_fits | PASS | - | - |
+| R3 | Glossary: 'rnb groove' reaches the r&b song | exactly Velvet Hours; grounded explanations | PASS | Velvet Hours | Medium (0.74) |
+| R4 | Glossary: 'catchy upbeat' reaches the pop songs | exactly Sunrise City, Gym Hero; grounded explanations | PASS | Sunrise City | High (0.96) |
 | G1 | Nonsense words: nothing fits | nothing_fits | PASS | - | - |
 | G2 | One real word and one unknown word: refused | nothing_fits | PASS | - | - |
 | G3 | Only filler words: nothing fits | nothing_fits | PASS | - | - |
 | G4 | Out-of-range energy is rejected with a reason | invalid_input; message has ''energy' must be between 0 and 1' | PASS | - | - |
 | G5 | A 500-character request is rejected | invalid_input; message has 'too long' | PASS | - | - |
 
-19 of 19 cases passed (100%). Average top-result confidence 0.86 across 14 cases that returned songs (High 11, Medium 2, Low 1).
+23 of 23 cases passed (100%). Average top-result confidence 0.86 across 17 cases that returned songs (High 13, Medium 3, Low 1).

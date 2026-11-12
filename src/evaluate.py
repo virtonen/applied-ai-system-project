@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 from src.main import ADVANCED_PROFILES, ADVERSARIAL_PROFILES, STANDARD_PROFILES
 from src.logging_utils import configure_logging
 from src.explain import validate_explanation
+from src.glossary import Glossary
 from src.pipeline import SearchOutcome, search
 from src.recommender import load_songs
 from src.report import format_table
@@ -54,6 +55,7 @@ class Case:
     k: int = 5
     mode: str = "balanced"
     diverse: bool = False
+    use_glossary: bool = True
     expect: Dict = field(default_factory=dict)
 
 
@@ -89,6 +91,15 @@ CASES: List[Case] = [
          expect=dict(exact=["Gym Hero"])),
     Case("S4", "'calm acoustic' returns a full list that includes Library Rain", PROFILES["Chill Lofi"], query="calm acoustic",
          expect=dict(includes=["Library Rain"], count=5, grounded=True)),
+    # Second retrieval source: the glossary widens what a request word can match
+    Case("R1", "Glossary: 'mellow homework' reaches chill and study songs", PROFILES["Chill Lofi"], query="mellow homework",
+         expect=dict(exact=["Library Rain", "Midnight Coding", "Focus Flow"], confidence="High", grounded=True)),
+    Case("R2", "The same request without the glossary finds nothing", PROFILES["Chill Lofi"], query="mellow homework", use_glossary=False,
+         expect=dict(status="nothing_fits", count=0)),
+    Case("R3", "Glossary: 'rnb groove' reaches the r&b song", PROFILES["Chill Lofi"], query="rnb groove",
+         expect=dict(exact=["Velvet Hours"], grounded=True)),
+    Case("R4", "Glossary: 'catchy upbeat' reaches the pop songs", PROFILES["High-Energy Pop"], query="catchy upbeat",
+         expect=dict(exact=["Sunrise City", "Gym Hero"], grounded=True)),
     # Guardrails
     Case("G1", "Nonsense words: nothing fits", PROFILES["Chill Lofi"], query="xylophone zebra",
          expect=dict(status="nothing_fits", count=0)),
@@ -114,7 +125,7 @@ class Result:
         return not self.failures
 
 
-def check(outcome: SearchOutcome, expect: Dict) -> List[str]:
+def check(outcome: SearchOutcome, expect: Dict, glossary=None) -> List[str]:
     """Return a list of problems (empty means the case passed)."""
     problems = []
     titles = [r.song["title"] for r in outcome.results]
@@ -146,7 +157,7 @@ def check(outcome: SearchOutcome, expect: Dict) -> List[str]:
             problems.append(f"confidence was {top.label if top else 'none'}, expected {expect['confidence']}")
     if expect.get("grounded"):
         for r in outcome.results:
-            ok, reason = validate_explanation(r.why.text, r.song, outcome.query)
+            ok, reason = validate_explanation(r.why.text, r.song, outcome.query, glossary)
             if not ok:
                 problems.append(f"explanation for {r.song['title']} is not grounded: {reason}")
     if "max_per_artist" in expect:
@@ -157,11 +168,14 @@ def check(outcome: SearchOutcome, expect: Dict) -> List[str]:
     return problems
 
 
-def run_cases(index: SongIndex, cases: List[Case]) -> List[Result]:
+def run_cases(index: SongIndex, cases: List[Case], plain_index: Optional[SongIndex] = None) -> List[Result]:
+    """Run each case. `index` should have the glossary; cases with use_glossary=False use a plain index."""
+    plain_index = plain_index or SongIndex(index.songs)
     results = []
     for case in cases:
-        outcome = search(index, case.query, case.prefs, k=case.k, mode=case.mode, diverse=case.diverse)
-        results.append(Result(case, outcome, check(outcome, case.expect)))
+        chosen = index if case.use_glossary else plain_index
+        outcome = search(chosen, case.query, case.prefs, k=case.k, mode=case.mode, diverse=case.diverse)
+        results.append(Result(case, outcome, check(outcome, case.expect, chosen.glossary)))
     return results
 
 
@@ -283,7 +297,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging(os.environ.get("VIBEMATCH_EVAL_LOG_FILE") or ROOT / "logs" / "evaluation.log")
-    results = run_cases(SongIndex(load_songs(args.data)), CASES)
+    songs = load_songs(args.data)
+    results = run_cases(SongIndex(songs, Glossary.load()), CASES, SongIndex(songs))
 
     print(to_brief(results) if args.brief else to_terminal(results))
     write_report(results, Path(args.out))

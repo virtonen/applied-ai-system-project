@@ -106,3 +106,12 @@ def test_the_command_runs_end_to_end_as_a_module():
         capture_output=True, text=True,
     )
     assert result.returncode == 0 and "1. Library Rain by Paper Lanterns" in result.stdout
+
+
+def test_the_glossary_is_used_by_default_and_can_be_switched_off(capsys):
+    code, out, _ = run(capsys, "mellow homework", *LOFI)
+    flat = " ".join(out.split())  # long lines wrap in the output
+    assert code == 0 and "mellow (as chill)" in out and "homework (as study)" in out
+    assert "Lofi is mellow, slightly worn-sounding beats" in flat and "the glossary links those words" in flat
+    code, out, _ = run(capsys, "mellow homework", *LOFI, "--no-glossary")
+    assert code == 1 and "Status  : nothing_fits" in out
