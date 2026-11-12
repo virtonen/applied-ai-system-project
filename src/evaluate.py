@@ -3,6 +3,7 @@ Evaluation harness: run predefined requests through the real search pipeline, ch
 against what it should return, and report pass/fail and confidence.
 
     python -m src.evaluate                  # print the table, write reports/evaluation.md
+    python -m src.evaluate --brief          # one short line per case
     python -m src.evaluate --readme         # also refresh the table inside README.md
     python -m src.evaluate --data other.csv
 
@@ -245,6 +246,17 @@ def to_terminal(results: List[Result]) -> str:
     return format_table(["ID", "What it checks", "Result", "Top song", "Confidence"], rows) + "\n" + summary_line(results)
 
 
+def to_brief(results: List[Result]) -> str:
+    """One short line per case plus the summary, narrow enough for a README code block."""
+    lines = []
+    for r in results:
+        top = r.outcome.top_confidence
+        shown = f"{r.outcome.results[0].song['title']}, {top.label} ({top.value:.2f})" if top else r.outcome.status
+        lines.append(f"{r.case.id:<3} {'PASS' if r.passed else 'FAIL'}  {shown:<34} {r.case.what}")
+        lines += [f"      -> {problem}" for problem in r.failures]
+    return "\n".join(lines) + "\n\n" + summary_line(results)
+
+
 def write_report(results: List[Result], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# Evaluation results\n\nRun with `python -m src.evaluate`.\n\n" + to_markdown(results), encoding="utf-8")
@@ -265,6 +277,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run the evaluation cases against the recommender.")
     parser.add_argument("--data", default=str(DEFAULT_DATA), help="song CSV to evaluate against")
     parser.add_argument("--out", default=str(DEFAULT_REPORT), help="where to write the markdown report")
+    parser.add_argument("--brief", action="store_true", help="print one short line per case instead of the wide table")
     parser.add_argument("--readme", action="store_true", help="also refresh the table between the EVAL markers in README.md")
     parser.add_argument("--readme-path", default=str(DEFAULT_README), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -272,7 +285,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     configure_logging(os.environ.get("VIBEMATCH_EVAL_LOG_FILE") or ROOT / "logs" / "evaluation.log")
     results = run_cases(SongIndex(load_songs(args.data)), CASES)
 
-    print(to_terminal(results))
+    print(to_brief(results) if args.brief else to_terminal(results))
     write_report(results, Path(args.out))
     print(f"\nReport written to {args.out}")
     if args.readme:

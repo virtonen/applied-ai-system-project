@@ -246,3 +246,10 @@ def test_live_gemini_reply_is_validated(index, monkeypatch):
     assert len(whys) == len(outcome.results) and all(w.text for w in whys)
     for why, r in zip(whys, outcome.results):
         assert validate_explanation(why.text, r.song, QUERY)[0], why
+
+
+def test_the_template_uses_a_or_an_correctly(songs):
+    assert "It is an r&b song with a romantic mood" in template_why(song(songs, "Velvet Hours")).text
+    assert "with an uplifting mood" in template_why(song(songs, "Island Sway")).text
+    assert "It is a lofi song with a chill mood" in template_why(song(songs, "Library Rain")).text
+    assert "It is an indie pop song" in template_why(song(songs, "Rooftop Lights")).text

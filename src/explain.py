@@ -74,6 +74,11 @@ def allowed_vocabulary(song: Dict, query: str = "") -> Set[str]:
     return words | {stem(w) for w in words}
 
 
+def _a(word: str) -> str:
+    """'a' or 'an' for the word that follows ('an uplifting', 'an r&b', 'a lofi')."""
+    return "an" if word[:1].lower() in "aeiou" or word.lower().startswith("r&b") else "a"
+
+
 def template_why(song: Dict, matched: Sequence[str] = ()) -> Why:
     """Build the explanation straight from the song's facts. Never uses any other information."""
     sentences = []
@@ -81,7 +86,8 @@ def template_why(song: Dict, matched: Sequence[str] = ()) -> Why:
         sentences.append(f"It matches your request ({', '.join(matched)}) because those words are in its description.")
     energy, *extra = sound_words(song)
     sound = " ".join([energy, *extra[:1]])
-    sentences.append(f"It is a {song['genre']} song with a {song['mood']} mood and a {sound} sound.")
+    genre, mood = song["genre"], song["mood"]
+    sentences.append(f"It is {_a(genre)} {genre} song with {_a(mood)} {mood} mood and a {sound} sound.")
     if song.get("mood_tags"):
         sentences.append(f"Its tags are {', '.join(song['mood_tags'])}.")
     return Why(" ".join(sentences), "template")

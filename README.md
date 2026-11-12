@@ -12,14 +12,14 @@ The diagram is in [diagrams/architecture.mmd](diagrams/architecture.mmd) (Mermai
 
 ![VibeMatch architecture diagram](assets/architecture_mmd.png)
 
-1. **UI** ([app.py](app.py)) collects a typed request and preferences.
+1. **UI** ([app.py](app.py)) collects a typed request and preferences. A command-line version ([src/search.py](src/search.py)) uses the same pipeline.
 2. **Input guardrails** check them. Bad input gets a clear message, never a crash.
 3. **Retriever** ([src/retrieval.py](src/retrieval.py)) finds songs whose text matches the request. If too few words match, it returns nothing and the UI says "Nothing fits".
 4. **Scorer** ([src/recommender.py](src/recommender.py)) ranks the candidates with the chosen mode and an optional diversity penalty.
 5. **Confidence** ([src/confidence.py](src/confidence.py)) rates each result.
 6. **Explainer** ([src/explain.py](src/explain.py)) writes a "why this song" sentence from the retrieved song facts. With Gemini switched on, the model writes it and a **validator** rejects any sentence that mentions something not in those facts (see below).
 7. **Logger** ([src/logging_utils.py](src/logging_utils.py)) writes one line per search to `logs/recommender.log`.
-8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 184 automated tests check each stage.
+8. **People and tests check the output:** a person reads the table, reasons, confidence and log, and 200 automated tests check each stage.
 
 ## Setup
 
@@ -36,9 +36,10 @@ pip install -r requirements.txt
 
 ```bash
 python -m streamlit run app.py          # web app, usually http://localhost:8501
+python -m src.search "cozy rainy study" --profile "Chill Lofi"   # one search in the terminal (add --ai for Gemini)
 python -m src.main --table              # terminal view of the demo profiles
 python -m pytest                        # all tests (use python -m, not bare pytest)
-python -m src.evaluate                  # evaluation harness: 19 cases, pass/fail table
+python -m src.evaluate --brief          # evaluation harness: 19 cases, pass/fail
 ```
 
 Optional environment variables: `VIBEMATCH_DATA` (path to another song CSV) and `VIBEMATCH_LOG_FILE` (path for the log).
@@ -91,36 +92,178 @@ Real example, profile Chill Lofi with the request `cozy rainy study` (Library Ra
 
 Trade-off: the validator is strict. A harmless synonym ("relaxing" for "chill") is rejected too, which is why the template is always there as a safe fallback. The validator checks words, not meaning, so it cannot catch a sentence that uses allowed words to say something false.
 
-## Sample interactions
+## Sample runs
 
-The web app with the first interaction below and the Gemini option on. The sentence under the song title was written by Gemini and passed the validator.
+Everything below is real output, copied from the commands shown. Run them from the project root with the virtual environment active. `python -m src.search` runs the same pipeline as the web app. Its exit code is 0 for results, 1 for "nothing fits", 2 for bad input or a bad song file, and 3 for an unexpected error. `--profile` loads one of the demo listener profiles (Chill Lofi means genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8).
+
+The web app shows the same result. This screenshot has the Gemini option on, and the sentence under the song title passed the validator:
 
 ![VibeMatch web app showing two results, confidence levels and a Gemini-written explanation](assets/streamlit-app.png)
 
-Profile: **Chill Lofi** (lofi, chill, energy 0.4, valence 0.6, acousticness 0.8).
+### 1. RAG: a typed request
 
-**1. A typed request**, input `cozy rainy study`:
+The request is matched against the song text. Only the two songs that share enough words are kept, ranked by the sliders, with a confidence level and a "why" sentence built from the retrieved facts.
 
-| # | Song | Score | Confidence | Matched words |
-|---|---|---|---|---|
-| 1 | Library Rain, Paper Lanterns | 0.97 | High (0.88) | cozy, rainy, study |
-| 2 | Midnight Coding, LoRoom | 0.96 | High (0.91) | cozy, study |
+```
+$ python -m src.search "cozy rainy study" --profile "Chill Lofi"
+Request : cozy rainy study
+Prefs   : genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8
+Mode    : balanced
+Status  : ok, 2 song(s), overall confidence High (0.88)
 
-Only these two songs share enough words with the request. Midnight Coding matched 2 of 3 words, so its coverage is 0.67.
+1. Library Rain by Paper Lanterns  [lofi / chill]
+   score 0.97 | confidence High (0.88): strength 0.97, separation 0.05, coverage 1.00
+   why: It matches your request (cozy, rainy, study) because those words are in its description. It
+        is a lofi song with a chill mood and a low-energy acoustic sound. Its tags are rainy, cozy,
+        study. (built from the song facts)
+   scored by: search match: cozy, rainy, study; energy close to target: 0.35 vs 0.40 (+0.33);
+              acousticness close to target: 0.86 vs 0.80 (+0.24); valence close to target: 0.60 vs
+              0.60 (+0.20); mood match: chill (+0.12); genre match: lofi (+0.08)
 
-**2. Nonsense**, input `xylophone zebra`: status `nothing_fits`, message `Nothing fits: no songs match "xylophone zebra".` No songs are shown.
+2. Midnight Coding by LoRoom  [lofi / chill]
+   score 0.96 | confidence High (0.91): strength 0.96, separation 1.00, coverage 0.67
+   why: It matches your request (cozy, study) because those words are in its description. It is a
+        lofi song with a chill mood and a medium-energy acoustic sound. Its tags are study, cozy,
+        nocturnal. (built from the song facts)
+   scored by: search match: cozy, study; energy close to target: 0.42 vs 0.40 (+0.34); acousticness
+              close to target: 0.71 vs 0.80 (+0.23); valence close to target: 0.56 vs 0.60 (+0.19);
+              mood match: chill (+0.12); genre match: lofi (+0.08)
+[exit code 0]
+```
 
-**3. A poor fit**, profile **Extreme Targets** (metal, peaceful, energy 0, valence 1, acousticness 0), no typed request:
+### 2. RAG with Gemini writing the "why"
 
-| # | Song | Score | Confidence |
-|---|---|---|---|
-| 1 | Birchwood Lullaby, Moss & Ember | 0.52 | Low (0.50) |
-| 2 | Velvet Hours, Marisol Kane | 0.48 | Low (0.43) |
-| 3 | Island Sway, Sol Rivera | 0.48 | Low (0.47) |
+The same search with `--ai`. One API call writes a sentence per song from the retrieved facts only, and the validator checks every word before it is shown. (Gemini's exact wording can vary between runs; the validator guarantee does not.)
 
-The app still shows the closest songs, but with a "Low confidence" warning that they are not a good fit.
+```
+$ python -m src.search "cozy rainy study" --profile "Chill Lofi" --ai
+Request : cozy rainy study
+Prefs   : genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8
+Mode    : balanced
+Status  : ok, 2 song(s), overall confidence High (0.88)
 
-**4. Bad input**, preference `energy: 9`: status `invalid_input`, message `'energy' must be between 0 and 1, not 9.`
+1. Library Rain by Paper Lanterns  [lofi / chill]
+   score 0.97 | confidence High (0.88): strength 0.97, separation 0.05, coverage 1.00
+   why: Library Rain fits you because it has the cozy, rainy, and study tags that match your
+        request. (written by Gemini, checked against the song facts)
+   scored by: search match: cozy, rainy, study; energy close to target: 0.35 vs 0.40 (+0.33);
+              acousticness close to target: 0.86 vs 0.80 (+0.24); valence close to target: 0.60 vs
+              0.60 (+0.20); mood match: chill (+0.12); genre match: lofi (+0.08)
+
+2. Midnight Coding by LoRoom  [lofi / chill]
+   score 0.96 | confidence High (0.91): strength 0.96, separation 1.00, coverage 0.67
+   why: Midnight Coding fits you because it has the cozy and study tags that match your request.
+        (written by Gemini, checked against the song facts)
+   scored by: search match: cozy, study; energy close to target: 0.42 vs 0.40 (+0.34); acousticness
+              close to target: 0.71 vs 0.80 (+0.23); valence close to target: 0.56 vs 0.60 (+0.19);
+              mood match: chill (+0.12); genre match: lofi (+0.08)
+[exit code 0]
+```
+
+### 3. Guardrail: nothing fits
+
+Too few request words match any song, so the system refuses to guess.
+
+```
+$ python -m src.search "xylophone zebra" --profile "Chill Lofi"
+Request : xylophone zebra
+Prefs   : genre lofi, mood chill, energy 0.4, valence 0.6, acousticness 0.8
+Mode    : balanced
+Status  : nothing_fits
+Message : Nothing fits: no songs match "xylophone zebra".
+[exit code 1]
+```
+
+### 4. Reliability: a poor fit is flagged
+
+The catalog has no good match for this listener (metal, peaceful, zero energy). The system still shows the closest songs, but labels the confidence Low and says so.
+
+```
+$ python -m src.search --profile "Extreme Targets" -k 3
+Request : (none, ranking by preferences only)
+Prefs   : genre metal, mood peaceful, energy 0.0, valence 1.0, acousticness 0.0
+Mode    : balanced
+Status  : ok, 3 song(s), overall confidence Low (0.50)
+Warning : low confidence, these are the closest songs, not a good fit
+
+1. Birchwood Lullaby by Moss & Ember  [folk / peaceful]
+   score 0.52 | confidence Low (0.50): strength 0.52, separation 0.37, coverage n/a
+   why: It is a folk song with a peaceful mood and a low-energy acoustic sound. Its tags are
+        peaceful, cozy, dreamy. (built from the song facts)
+   scored by: energy close to target: 0.24 vs 0.00 (+0.27); acousticness close to target: 0.93 vs
+              0.00 (+0.02); valence close to target: 0.58 vs 1.00 (+0.12); mood match: peaceful
+              (+0.12)
+
+2. Velvet Hours by Marisol Kane  [r&b / romantic]
+   score 0.48 | confidence Low (0.43): strength 0.48, separation 0.05, coverage n/a
+   why: It is an r&b song with a romantic mood and a medium-energy electronic sound. Its tags are
+        romantic, smooth, nocturnal. (built from the song facts)
+   scored by: energy close to target: 0.49 vs 0.00 (+0.18); acousticness close to target: 0.28 vs
+              0.00 (+0.18); valence close to target: 0.62 vs 1.00 (+0.12)
+
+3. Island Sway by Sol Rivera  [reggae / uplifting]
+   score 0.48 | confidence Low (0.47): strength 0.48, separation 0.41, coverage n/a
+   why: It is a reggae song with an uplifting mood and a medium-energy sound. Its tags are carefree,
+        sunny, warm. (built from the song facts)
+   scored by: energy close to target: 0.58 vs 0.00 (+0.15); acousticness close to target: 0.31 vs
+              0.00 (+0.17); valence close to target: 0.79 vs 1.00 (+0.16)
+[exit code 0]
+```
+
+### 5. Guardrail: invalid input
+
+An out-of-range preference is rejected with a reason instead of being ranked.
+
+```
+$ python -m src.search --profile "Chill Lofi" --energy 9
+Request : (none, ranking by preferences only)
+Prefs   : genre lofi, mood chill, energy 9.0, valence 0.6, acousticness 0.8
+Mode    : balanced
+Status  : invalid_input
+Message : 'energy' must be between 0 and 1, not 9.
+[exit code 2]
+```
+
+### 6. Evaluation harness
+
+Nineteen predefined cases run through the same pipeline and are checked against the expected songs, status and confidence (the full table is under Testing summary).
+
+```
+$ python -m src.evaluate --brief
+P1  PASS  Sunrise City, High (0.96)          High-Energy Pop: the pop/happy song wins
+P2  PASS  Library Rain, High (0.85)          Chill Lofi: both lofi/chill songs lead
+P3  PASS  Storm Runner, High (0.99)          Deep Intense Rock: the one rock song wins
+P4  PASS  Dust Road Home, High (0.99)        Nostalgic Throwback uses decade, popularity and tags
+P5  PASS  Adagio for Rain, Medium (0.74)     Sad but Energetic: a compromise, so only Medium confidence
+P6  PASS  Birchwood Lullaby, Low (0.50)      Extreme Targets: a poor fit must be flagged Low
+P7  PASS  Storm Runner, High (0.84)          Clean Workout: the explicit song stays out of the top 3
+M1  PASS  Sunrise City, High (0.97)          Mood-first ranks a happy song above the intense Gym Hero
+M2  PASS  Iron Requiem, Medium (0.68)        Genre-first puts the only metal song first for the metal fan
+D1  PASS  Library Rain, High (0.95)          Diversity penalty: one song per artist for Chill Lofi
+S1  PASS  Library Rain, High (0.88)          'cozy rainy study' finds exactly the two songs with those tags
+S2  PASS  Coffee Shop Stories, High (0.82)   A one-word request is enough: 'jazz'
+S3  PASS  Gym Hero, High (0.89)              Vibe words from numbers: 'workout powerful'
+S4  PASS  Library Rain, High (0.97)          'calm acoustic' returns a full list that includes Library Rain
+G1  PASS  nothing_fits                       Nonsense words: nothing fits
+G2  PASS  nothing_fits                       One real word and one unknown word: refused
+G3  PASS  nothing_fits                       Only filler words: nothing fits
+G4  PASS  invalid_input                      Out-of-range energy is rejected with a reason
+G5  PASS  invalid_input                      A 500-character request is rejected
+
+19 of 19 cases passed (100%). Average top-result confidence 0.86 across 14 cases that returned songs (High 11, Medium 2, Low 1).
+[exit code 0]
+```
+
+### 7. Test suite
+
+```
+$ python -m pytest -q
+........................................................................ [ 35%]
+...........................s............................................ [ 71%]
+.........................................................                [100%]
+200 passed, 1 skipped in 1.34s
+[exit code 0]
+```
 
 ## Design decisions
 
@@ -134,7 +277,7 @@ The app still shows the closest songs, but with a "Low confidence" warning that 
 
 ## Testing summary
 
-All **184 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
+All **200 tests pass** (`python -m pytest`), plus 1 live test that is skipped unless `RUN_LIVE_LLM_TESTS=1` (it spends one real API call).
 
 | File | Tests | Covers |
 |---|---|---|
@@ -143,8 +286,9 @@ All **184 tests pass** (`python -m pytest`), plus 1 live test that is skipped un
 | `test_confidence.py` | 11 | bounds, monotonic behavior, exact values, labels, calibration on the demo profiles |
 | `test_retrieval.py` | 22 | stemming, stopwords, expected hits per query, the guardrail on nonsense |
 | `test_app.py` | 22 | the Streamlit page (via `AppTest`): results, search box, confidence, error screens |
-| `test_explain.py` | 32 | the template, the validator (accepts facts, rejects invented genre, year, artist, instrument, number), the AI step with a fake model (valid, invalid, missing, failing, cached), the client and key loading, and the skipped live test |
-| `test_evaluate.py` | 24 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
+| `test_explain.py` | 33 | the template, the validator (accepts facts, rejects invented genre, year, artist, instrument, number), the AI step with a fake model (valid, invalid, missing, failing, cached), the client and key loading, and the skipped live test |
+| `test_search_cli.py` | 13 | the terminal command: output, exit codes, profiles, flags, the Gemini option with a fake model, a real subprocess run |
+| `test_evaluate.py` | 26 | the evaluation harness itself: it passes every built-in case, catches each kind of failure, writes a stable report, updates the README, sets the exit code |
 | `test_scoring_modes.py`, `test_diversity.py`, `test_table.py` | 25 | scoring modes, diversity penalty, table output |
 
 Confidence on the 10 demo profiles (no typed request):

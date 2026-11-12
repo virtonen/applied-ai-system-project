@@ -164,3 +164,22 @@ def test_the_grounded_check_catches_an_explanation_with_invented_facts(index):
     outcome.results[0].why = Why("It is a jazz song from 1995.", "ai")
     problems = check(outcome, dict(grounded=True))
     assert len(problems) == 1 and "not grounded" in problems[0] and "1995" in problems[0]
+
+
+def test_brief_output_has_one_line_per_case_and_the_summary(results, tmp_path, capsys):
+    from src.evaluate import to_brief
+
+    lines = to_brief(results).splitlines()
+    assert sum(1 for line in lines if line[:2] in ("P1", "G5") and "PASS" in line) == 2
+    assert lines[-1].startswith(f"{len(CASES)} of {len(CASES)} cases passed")
+    assert max(len(line) for line in lines if line.startswith(("P", "M", "D", "S", "G"))) < 130
+
+    assert main(["--brief", "--out", str(tmp_path / "r.md")]) == 0
+    assert "PASS" in capsys.readouterr().out
+
+
+def test_brief_output_lists_the_reasons_for_a_failure(index):
+    from src.evaluate import to_brief
+
+    text = to_brief(run_cases(index, [failing_case()]))
+    assert "FAIL" in text and "-> top was" in text

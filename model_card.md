@@ -34,7 +34,7 @@
 
 ## 5. Evaluation
 
-184 automated tests pass (`python -m pytest`). The 10 demo profiles are 3 typical listeners (High-Energy Pop, Chill Lofi, Deep Intense Rock), 3 adversarial ones (Sad but Energetic, Unknown Genre and Mood, Extreme Targets) and 4 using the advanced features.
+200 automated tests pass (`python -m pytest`). The 10 demo profiles are 3 typical listeners (High-Energy Pop, Chill Lofi, Deep Intense Rock), 3 adversarial ones (Sad but Energetic, Unknown Genre and Mood, Extreme Targets) and 4 using the advanced features.
 
 | Check | Result |
 |---|---|
@@ -48,7 +48,7 @@
 | Each search | One JSON line in the log |
 | Model invents a genre, year or artist | Sentence rejected, fact-based sentence shown, reason logged |
 | Model call fails (HTTP error, timeout, blocked reply) | Page still works, fact-based sentences shown, error logged without the key |
-| Live Gemini calls (3 real calls during development, including the README screenshot) | Replies passed validation |
+| Live Gemini calls (4 real calls during development, including the README screenshot and sample run) | Replies passed validation |
 | Evaluation harness (`python -m src.evaluate`) | 19 of 19 cases pass, average top-result confidence 0.86 |
 
 Breaking the code on purpose made tests fail: weakening the confidence weights failed 7 tests, and removing the CSV range check failed 1.

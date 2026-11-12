@@ -30,6 +30,6 @@ How I worked with an AI coding assistant on this project: the prompt, what it pr
 **What I checked:**
 - I confirmed that the template passes its own validator for every song, with and without a request.
 - I broke the validator on purpose and 10 tests failed.
-- I made three real Gemini calls in total (one probe, one live test, one for the README screenshot); every reply passed validation.
+- I made four real Gemini calls in total (one probe, one live test, one for the README screenshot, one for the README sample run); every reply passed validation.
 - I made tests unable to find the real key, so they cannot make live calls, and I searched the repo to confirm the key appears nowhere but `.env`.
 - I stated in the docs that the validator checks words, not meaning.
