@@ -17,9 +17,9 @@ How I worked with an AI coding assistant on this project: the prompt, what it pr
 
 **Prompt:** "A script that runs predefined queries and profiles against expected songs. It prints pass/fail and average confidence, and writes a markdown table for the README."
 
-**What it produced:** `src/evaluate.py` with 19 cases (later 29), a markdown report, an optional README refresh, and an exit code for failures; plus `tests/test_evaluate.py`.
+**What it produced:** `src/evaluate.py` with 19 cases (later 30), a markdown report, an optional README refresh, and an exit code for failures; plus `tests/test_evaluate.py`.
 
-**What I checked:** I weakened the retrieval guardrail on purpose and the harness flagged 3 of 19 cases (it now has 29 cases, including the glossary and agent ones). I also noted in the README that the expected results came from behavior I had already inspected, so the harness guards against regressions and is not an independent measure of quality.
+**What I checked:** I weakened the retrieval guardrail on purpose and the harness flagged 3 of 19 cases (it now has 30 cases, including the glossary, agent and prompt-injection ones). I also noted in the README that the expected results came from behavior I had already inspected, so the harness guards against regressions and is not an independent measure of quality.
 
 ## 3. Grounded explanations (RAG with validation)
 
@@ -30,7 +30,7 @@ How I worked with an AI coding assistant on this project: the prompt, what it pr
 **What I checked:**
 - I confirmed that the template passes its own validator for every song, with and without a request.
 - I broke the validator on purpose and 10 tests failed.
-- I made six real Gemini calls in total (one probe, one live test, one for the README screenshot, three for README sample runs); every reply passed validation.
+- I made twenty-five real Gemini calls in total (one probe, one live test, one for the README screenshot, three for README sample runs, and nineteen for the prompt experiment); every reply passed validation.
 - I made tests unable to find the real key, so they cannot make live calls, and I searched the repo to confirm the key appears nowhere but `.env`.
 - I stated in the docs that the validator checks words, not meaning.
 
@@ -157,3 +157,18 @@ CHECK   this cannot be fixed by rewording: 'energy' must be between 0 and 1, not
 DECIDE  stopped without a result and without retrying. 'energy' must be between 0 and 1, not 9.
 ```
 <!-- TRACES:END -->
+
+## 6. Specialization: plain prompt vs constrained prompt
+
+**Prompt:** "Implement and test: compare a plain Gemini prompt against your constrained prompt, with the validator-rejection rate as the measured difference. I have a limited Gemini free tier, so do as much as possible with few calls, and add a simple guardrail if the results suggest one. I don't know which deterministic guardrail works best for nonsense."
+
+**What it produced:** `src/specialization.py` (three prompts with identical facts, a numbered-answer parser, the scoring, a cached and rate-limit-aware runner, and a report), `reports/specialization_raw.json` and `reports/specialization.md` (committed evidence), two guardrails in `src/explain.py`, a harness case, and 26 + 8 tests. It made 19 real Gemini calls, 4 seconds apart, and was built to stop cleanly on a rate limit and to re-score saved replies with no calls.
+
+**What I checked:**
+- **Cost control.** All tests use a fake model, so the experiment's logic was verified before any call. A full re-run costs 0 calls because replies are cached by prompt hash, and a rate limit (HTTP 429) stops the run and keeps what was collected.
+- **A fair comparison.** A test checks that all three prompts contain exactly the same fact lines, so only the instructions differ.
+- **The result.** Plain prompt: 100% of sentences rejected, 47 words on average. Constrained: 0% rejected, 16.5 words. Few-shot: 0% rejected, 19 words (no gain over constrained).
+- **A weakness in my own validator.** While designing the injection test, I checked it without any API call: the validator allowed every word of the typed request, so planted text such as "banana" would pass. Fix: only matched request words are sent to the model and only those are allowed back. Three mutation checks (word cap off, request words allowed again, whole request sent to the model again) failed 1, 5 and 7 tests.
+- **A guardrail chosen from data, not guesswork.** Constrained sentences never exceeded 22 words and plain ones never went below 40, so a 30-word cap separates them. The most effective guardrail against nonsense in the request turned out to be structural, not a blocklist: retrieval already refuses requests with too few matching words, and now the model never sees the unmatched words at all.
+- **An honest null result.** Two live injection attempts (one forceful "SYSTEM OVERRIDE") were both ignored by Gemini, so the new protection is defense in depth that I proved with a fake model that obeys, not a leak I observed.
+- **What I did not do:** I did not add "plus" (a harmless word the validator once rejected) to the allowed list. One observation is not enough evidence, and the strictness is the point.

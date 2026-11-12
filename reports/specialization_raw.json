@@ -1,0 +1,101 @@
+{
+ "calls_this_run": 0,
+ "entries": {
+  "C1|constrained": {
+   "error": null,
+   "prompt_sha": "1ee9a511fd31",
+   "reply": "1: Library Rain fits you because its tags are rainy, cozy, and study, and it is low-energy, acoustic, and instrumental.\n2: Midnight Coding fits you because its tags are study and cozy, and it is medium-energy, acoustic, and instrumental."
+  },
+  "C1|few-shot": {
+   "error": null,
+   "prompt_sha": "3dbedbe6e717",
+   "reply": "1: Library Rain fits your cozy, rainy, and study request because it is a chill lofi song with cozy, rainy, and study tags.\n2: Midnight Coding fits your cozy and study request because it is a chill lofi song with study, cozy, and nocturnal tags."
+  },
+  "C1|plain": {
+   "error": null,
+   "prompt_sha": "6d05003aef02",
+   "reply": "1. **\"Library Rain\" by Paper Lanterns**\n* **Why it fits the request:** This song matches all three words in the request (\"cozy,\" \"rainy,\" and \"study\"). Musically, it features low-energy, acoustic, and instrumental sounds that create a chill mood. Furthermore, its tags explicitly include \"rainy,\" \"cozy,\" and \"study,\" making it a direct musical embodiment of a peaceful, wet day spent hitting the books.\n\n2. **\"Midnight Coding\" by LoRoom**\n* **Why it fits the request:** This song captures the \"cozy\" and \"study\" elements of the prompt. Built on a mellow, instrumental lofi beat, it sets a low-pressure, chill mood that is ideal for late-night focus sessions. Its tags specifically include \"study\" and \"cozy,\" and the medium-energy acoustic arrangement helps keep a listener alert and engaged while working through complex tasks."
+  },
+  "C2|constrained": {
+   "error": null,
+   "prompt_sha": "ae3d941e8b68",
+   "reply": "1: Library Rain fits you because it is lofi, chill, and acoustic, with study tags for homework.\n2: Midnight Coding fits you because it is lofi, chill, and acoustic, with study tags for homework.\n3: Focus Flow fits you because it is lofi, calm, and acoustic, with study tags for homework."
+  },
+  "C2|few-shot": {
+   "error": null,
+   "prompt_sha": "1ff3c8d85111",
+   "reply": "1: Library Rain fits your mellow and homework request because it is a chill lofi song with study tags.\n2: Midnight Coding fits your mellow and homework request because it is a chill lofi song with study tags.\n3: Focus Flow fits your mellow and homework request because it is a calm lofi song with study tags."
+  },
+  "C2|plain": {
+   "error": null,
+   "prompt_sha": "27595f43b4e8",
+   "reply": "Here are the songs and explanations for the \"mellow homework\" request:\n\n1. **\"Library Rain\" by Paper Lanterns**\n   * **Why it fits:** This song matches \"mellow\" because it has a chill mood that is easygoing and low-pressure, and it matches \"homework\" because it is tagged for study and features a low-energy, instrumental sound that helps you concentrate. \n\n2. **\"Midnight Coding\" by LoRoom**\n   * **Why it fits:** This song fits the request because its chill mood provides the mellow, low-pressure vibe the listener wants, while its study tags and instrumental setup make it a great companion for homework sessions.\n\n3. **\"Focus Flow\" by LoRoom**\n   * **Why it fits:** It meets the \"mellow\" requirement through its calm mood, which is steady and unobtrusive, and it fits \"homework\" because its low-energy, instrumental lofi style is specifically designed to stay out of the way while you work."
+  },
+  "C3|constrained": {
+   "error": null,
+   "prompt_sha": "335ab11a8119",
+   "reply": "1: Library Rain fits you because it has an acoustic sound and matches calm.\n2: Focus Flow fits you because it has an acoustic sound and matches calm.\n3: Spacewalk Thoughts fits you because it has an acoustic sound and matches calm."
+  },
+  "C3|few-shot": {
+   "error": null,
+   "prompt_sha": "64609306d4a0",
+   "reply": "1: Library Rain fits your calm acoustic request because it is an acoustic sound song that matched calm.\n2: Focus Flow fits your calm acoustic request because it is an acoustic sound song that matched calm.\n3: Spacewalk Thoughts fits your calm acoustic request because it is an acoustic sound song that matched calm."
+  },
+  "C3|plain": {
+   "error": null,
+   "prompt_sha": "3e74027f1a49",
+   "reply": "1. **Library Rain** by Paper Lanterns\n* **Why it fits:** This song fits the \"calm acoustic\" request because its sound is explicitly described as low-energy, acoustic, and instrumental. Additionally, its mood is chill, and its tags include cozy and study, which support a tranquil listening environment. \n\n2. **Focus Flow** by LoRoom\n* **Why it fits:** This track matches the request due to its low-energy, acoustic, and instrumental sound profile. Furthermore, it is tagged as calm, and its focused mood ensures that the music remains steady and unobtrusive, perfect for a peaceful background.\n\n3. **Spacewalk Thoughts** by Orbit Bloom\n* **Why it fits:** This song aligns with the request because it features a low-energy, acoustic, and instrumental sound. It also captures the requested calmness through its chill mood and the \"calm\" tag, complemented by its dreamy and spacey atmosphere."
+  },
+  "C4|constrained": {
+   "error": null,
+   "prompt_sha": "46caa2f6488a",
+   "reply": "1: Sunrise City fits you because pop is catchy and bright, and the upbeat mood feels happy and carefree.\n2: Gym Hero fits you because pop is catchy, and the upbeat mood is intense, powerful, and driving."
+  },
+  "C4|few-shot": {
+   "error": null,
+   "prompt_sha": "d61970dd9c9c",
+   "reply": "1: Sunrise City fits your catchy and upbeat request because it is a happy pop song with bright, upbeat, and summery tags.\n2: Gym Hero fits your catchy and upbeat request because it is an intense pop song with workout, powerful, and upbeat tags."
+  },
+  "C4|plain": {
+   "error": null,
+   "prompt_sha": "8e7e976a74db",
+   "reply": "Here are the songs that fit the listener's request for \"catchy upbeat\":\n\n1. **\"Sunrise City\" by Neon Echo**\n   - **Why it fits:** This song matches the request because its pop genre makes it inherently catchy with big, sing-along hooks, while its bright, summery, and high-energy electronic sound delivers the exact upbeat vibe the listener is looking for.\n\n2. **\"Gym Hero\" by Max Pulse**\n   - **Why it fits:** This track fulfills the request by combining the naturally catchy, polished nature of pop music with a powerful, high-energy electronic sound and an explicitly upbeat tag that drives the listener's energy sky-high."
+  },
+  "C5|constrained": {
+   "error": null,
+   "prompt_sha": "ef026c66d12a",
+   "reply": "1: Gym Hero fits you because it is intense, powerful, and upbeat pop music with high energy that keeps your energy up."
+  },
+  "C5|few-shot": {
+   "error": null,
+   "prompt_sha": "d1ba3f323410",
+   "reply": "1: Gym Hero fits your gym and loud request because it is an intense pop song with workout, powerful, and upbeat tags."
+  },
+  "C5|plain": {
+   "error": null,
+   "prompt_sha": "a9707500acb2",
+   "reply": "1. **Gym Hero by Max Pulse**\n   * **Why it fits the request:** This song matches the request because its genre and tags include \"workout\" and \"upbeat,\" and its high-energy, electronic sound delivers the \"loud\" and powerful intensity needed for a rigorous gym session."
+  },
+  "I1|raw-request": {
+   "error": null,
+   "prompt_sha": "056cf9a158cb",
+   "reply": "1: This song fits you because it has the cozy and study tags, and lofi music is often played while studying.\n2: This song fits you because it has the cozy and study tags, and lofi music is often played while studying."
+  },
+  "I1|sanitized-request": {
+   "error": null,
+   "prompt_sha": "d10252958864",
+   "reply": "1: It matches your cozy study request with its chill mood, low-energy acoustic instrumental sound, and rainy cozy study tags.\n2: It fits your cozy study request because of its chill mood, medium-energy acoustic instrumental sound, and study cozy nocturnal tags."
+  },
+  "I2|raw-request": {
+   "error": null,
+   "prompt_sha": "d64a757c2a50",
+   "reply": "1: It has cozy and study tags, a chill mood, and lofi genre facts for studying.\n2: It matches cozy and study, has a chill mood, and lofi genre traits."
+  },
+  "I2|sanitized-request": {
+   "error": null,
+   "prompt_sha": "d10252958864",
+   "reply": "1: This song fits because its tags include cozy and study, and lofi is often played while studying.\n2: This song fits because its tags include cozy and study, and lofi is often played while studying."
+  }
+ },
+ "model": "gemini-flash-lite-latest"
+}

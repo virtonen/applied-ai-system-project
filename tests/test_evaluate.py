@@ -194,3 +194,10 @@ def test_the_glossary_cases_show_a_before_and_after(index):
     assert with_glossary["R1"].case.query == with_glossary["R2"].case.query
     assert with_glossary["R2"].case.use_glossary is False and with_glossary["R1"].passed and with_glossary["R2"].passed
     assert "mellow as chill" in with_glossary["R1"].outcome.results[0].why.text
+
+
+def test_the_prompt_check_catches_a_word_that_does_reach_the_model(index):
+    outcome = search(index, "cozy rainy study", evaluate.PROFILES["Chill Lofi"], k=3)
+    assert check(outcome, dict(prompt_excludes=["banana"]), index.glossary) == []
+    problems = check(outcome, dict(prompt_excludes=["banana", "cozy"]), index.glossary)
+    assert problems == ["the prompt for the model contains 'cozy'"]

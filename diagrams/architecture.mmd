@@ -1,4 +1,4 @@
-%% VibeMatch system architecture (current: logging, guardrails, confidence, two retrieval sources, grounded RAG explanations, agent loop, evaluation harness).
+%% VibeMatch system architecture (current: logging, guardrails, confidence, two retrieval sources, grounded RAG explanations, constrained prompt, agent loop, evaluation harness).
 %% Render with any Mermaid viewer, for example the Mermaid Live Editor or GitHub.
 flowchart TD
     USER(["User<br/>typed request + sliders"])
@@ -24,16 +24,16 @@ flowchart TD
     subgraph RAG["Grounded explanation (src/explain.py)"]
         FACTS["Retrieved song facts<br/>description + plain-word numbers<br/>+ matched request words"]
         TEMPLATE["Fact-based template sentence<br/>(always available)"]
-        GEMINI["Gemini (optional, one call per search)<br/>src/llm_client.py"]
-        VALID{"Validator<br/>every word must come from<br/>the facts or the request"}
+        GEMINI["Gemini (optional, one call per search)<br/>constrained prompt: facts + matched<br/>request words only (src/llm_client.py)"]
+        VALID{"Validator<br/>every word from the facts or the<br/>matched request words, max 30 words"}
     end
 
     AGENT["Agent (src/agent.py), optional<br/>PLAN, ACT (search), CHECK, REVISE<br/>max 3 retries, never repeats a strategy<br/>stops on invalid input or error"]
 
     LOG[("logs/recommender.log<br/>one JSON line per search")]
-    TESTS{{"pytest: 268 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
+    TESTS{{"pytest: 303 automated tests<br/>guardrails, retrieval, scoring,<br/>confidence, pipeline, logging, UI"}}
 
-    EVAL["Evaluation harness (src/evaluate.py)<br/>29 predefined cases with expected songs<br/>pass/fail + average confidence"]
+    EVAL["Evaluation harness (src/evaluate.py)<br/>30 predefined cases with expected songs<br/>pass/fail + average confidence"]
     REPORT[("reports/evaluation.md<br/>table copied into the README")]
 
     CSV --> LOAD

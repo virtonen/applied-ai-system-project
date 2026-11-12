@@ -28,10 +28,11 @@ Run with `python -m src.evaluate`.
 | A4 | Agent: Low confidence, so it switches the scoring mode | agent improved, 1 retry; final mode mood-first; confidence Medium | PASS | Birchwood Lullaby | Medium (0.69) |
 | A5 | Agent: a good first search is left alone | exactly Library Rain, Midnight Coding; agent first_try, 0 retries | PASS | Library Rain | High (0.88) |
 | A6 | Agent: invalid input is not retried | invalid_input; agent stopped, 0 retries | PASS | - | - |
+| G6 | Hidden instructions in a request never reach the model's prompt | exactly Library Rain, Midnight Coding; model prompt excludes banana, ignore, previous; grounded explanations | PASS | Library Rain | Medium (0.73) |
 | G1 | Nonsense words: nothing fits | nothing_fits | PASS | - | - |
 | G2 | One real word and one unknown word: refused | nothing_fits | PASS | - | - |
 | G3 | Only filler words: nothing fits | nothing_fits | PASS | - | - |
 | G4 | Out-of-range energy is rejected with a reason | invalid_input; message has ''energy' must be between 0 and 1' | PASS | - | - |
 | G5 | A 500-character request is rejected | invalid_input; message has 'too long' | PASS | - | - |
 
-29 of 29 cases passed (100%). Average top-result confidence 0.85 across 22 cases that returned songs (High 17, Medium 4, Low 1).
+30 of 30 cases passed (100%). Average top-result confidence 0.84 across 23 cases that returned songs (High 17, Medium 5, Low 1).
